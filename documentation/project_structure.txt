@@ -1,0 +1,232 @@
+globalrisk-ai/
+│
+├── app/
+│   │
+│   ├── api/                              # NEW [PRODUCT/API]
+│   │   ├── __init__.py
+│   │   ├── main.py                       # FastAPI application entrypoint
+│   │   │
+│   │   ├── routes/
+│   │   │   ├── __init__.py
+│   │   │   ├── health.py
+│   │   │   ├── documents.py              # Upload + document management
+│   │   │   ├── analysis.py               # Trigger risk analysis
+│   │   │   ├── companies.py
+│   │   │   ├── risks.py
+│   │   │   ├── comparison.py             # Year-over-year comparison
+│   │   │   └── reports.py                # Generated intelligence reports
+│   │   │
+│   │   ├── dependencies/
+│   │   │   ├── __init__.py
+│   │   │   └── services.py
+│   │   │
+│   │   └── middleware/
+│   │       ├── __init__.py
+│   │       ├── error_handler.py
+│   │       └── logging.py
+│   │
+│   │
+│   ├── config/                           # NEW [FOUNDATION]
+│   │   ├── __init__.py
+│   │   ├── settings.py                   # Pydantic settings
+│   │   ├── logging.py
+│   │   └── constants.py
+│   │
+│   │
+│   ├── ingestion/                        # KEEP [DOCUMENT INGESTION]
+│   │   ├── __init__.py
+│   │   │
+│   │   ├── loaders/
+│   │   │   ├── __init__.py
+│   │   │   └── pdf_loader.py
+│   │   │
+│   │   ├── extractors/
+│   │   │   ├── __init__.py
+│   │   │   ├── pymupdf_extractor.py
+│   │   │   ├── pdfplumber_extractor.py
+│   │   │   └── extractor_factory.py
+│   │   │
+│   │   └── ocr/
+│   │       ├── __init__.py
+│   │       ├── ocr_engine.py
+│   │       └── fallback_router.py
+│   │
+│   │
+│   ├── processing/                       # MOD [DOCUMENT PROCESSING]
+│   │   ├── __init__.py
+│   │   ├── cleaner.py
+│   │   ├── normalizer.py                 # SEC ↔ BSE / document normalization
+│   │   ├── section_detector.py
+│   │   ├── risk_section_detector.py
+│   │   ├── metadata_extractor.py
+│   │   └── chunker.py                    # Final selected chunking strategy
+│   │
+│   │
+│   ├── taxonomy/                         # KEEP [KNOWLEDGE LAYER]
+│   │   ├── __init__.py
+│   │   ├── loader.py
+│   │   ├── validator.py
+│   │   ├── classifier_rules.py
+│   │   └── data/
+│   │       └── risk_taxonomy_v1.json
+│   │
+│   │
+│   ├── risk_engine/                      # CORE AI ENGINE
+│   │   ├── __init__.py
+│   │   ├── detector.py                   # Detect risk-bearing content
+│   │   ├── extractor.py                  # Extract structured risks
+│   │   ├── classifier.py                 # L1/L2/L3 mapping
+│   │   ├── severity.py
+│   │   ├── confidence.py
+│   │   ├── deduplicator.py
+│   │   ├── evidence.py                   # Evidence grounding
+│   │   └── pipeline.py                   # Orchestrates risk analysis
+│   │
+│   │
+│   ├── llm/                              # NEW/IMPORTANT [LLM ABSTRACTION]
+│   │   ├── __init__.py
+│   │   ├── base.py                       # Common LLM interface
+│   │   ├── provider_factory.py
+│   │   ├── prompts/
+│   │   │   ├── risk_extraction.py
+│   │   │   ├── classification.py
+│   │   │   └── comparison.py
+│   │   │
+│   │   └── providers/
+│   │       ├── groq.py
+│   │       ├── ollama.py
+│   │       └── claude.py
+│   │
+│   │
+│   ├── retrieval/                        # MOD [RAG + RETRIEVAL]
+│   │   ├── __init__.py
+│   │   ├── embeddings.py
+│   │   ├── bm25.py
+│   │   ├── dense_retriever.py
+│   │   ├── hybrid.py
+│   │   ├── rrf.py
+│   │   ├── reranker.py
+│   │   ├── vector_store.py               # Vector DB abstraction
+│   │   └── rag_chain.py
+│   │
+│   │
+│   ├── comparison/                       # NEW [CORE PRODUCT DIFFERENTIATOR]
+│   │   ├── __init__.py
+│   │   ├── matcher.py                    # Match risks across years
+│   │   ├── similarity.py                 # Semantic similarity
+│   │   ├── delta.py                      # NEW/MODIFIED/REMOVED logic
+│   │   ├── severity_change.py
+│   │   ├── tone_analyzer.py
+│   │   ├── evolution.py                  # Risk evolution logic
+│   │   └── report_builder.py
+│   │
+│   │
+│   ├── intelligence/                     # PRD INTELLIGENCE FEATURES
+│   │   ├── __init__.py
+│   │   ├── company_profile.py
+│   │   ├── risk_explorer.py
+│   │   ├── peer_comparison.py
+│   │   ├── industry_analysis.py
+│   │   ├── financial_analysis.py
+│   │   ├── news_analysis.py
+│   │   └── scanner.py                    # Multi-factor risk scanner
+│   │
+│   │
+│   ├── db/                               # NEW [DATA ACCESS LAYER]
+│   │   ├── __init__.py
+│   │   ├── session.py
+│   │   ├── base.py
+│   │   │
+│   │   ├── repositories/
+│   │   │   ├── company_repository.py
+│   │   │   ├── document_repository.py
+│   │   │   ├── risk_repository.py
+│   │   │   └── comparison_repository.py
+│   │   │
+│   │   └── migrations/
+│   │
+│   │
+│   ├── models/                           # MOD [PYDANTIC / DOMAIN SCHEMAS]
+│   │   ├── __init__.py
+│   │   ├── document.py
+│   │   ├── company.py
+│   │   ├── risk.py
+│   │   ├── comparison.py
+│   │   └── intelligence.py
+│   │
+│   │
+│   └── utils/
+│       ├── __init__.py
+│       ├── ids.py
+│       ├── hashing.py
+│       └── timing.py
+│
+│
+├── data/
+│   ├── raw/
+│   │   └── annual_reports/
+│   │
+│   ├── extracted/
+│   ├── processed/
+│   ├── benchmarks/
+│   └── fixtures/
+│
+│
+├── experiments/
+│   │
+│   ├── phase_1_taxonomy/
+│   ├── phase_2_prompt_engineering/
+│   ├── phase_3_document_testing/
+│   ├── phase_4_ocr/
+│   ├── phase_5_chunking/
+│   ├── phase_6_embeddings/
+│   └── phase_7_evaluation/              # NEW
+│
+│
+├── tests/
+│   ├── conftest.py
+│   │
+│   ├── ingestion/
+│   ├── processing/
+│   ├── taxonomy/
+│   ├── risk_engine/
+│   ├── retrieval/
+│   ├── comparison/
+│   ├── intelligence/
+│   ├── db/
+│   └── api/
+│
+│
+├── reports/
+│   ├── phase_1_taxonomy/
+│   ├── phase_2_prompt_engineering/
+│   ├── phase_3_document_testing/
+│   ├── phase_4_ocr/
+│   ├── phase_5_chunking/
+│   ├── phase_6_embeddings/
+│   └── phase_7_evaluation/
+│
+│
+├── scripts/
+│   ├── ingest_reports.py
+│   ├── run_pipeline.py
+│   ├── evaluate_pipeline.py
+│   └── seed_demo_data.py
+│
+│
+├── docs/
+│   ├── architecture.md
+│   ├── api.md
+│   ├── taxonomy.md
+│   └── decisions/
+│
+│
+├── docker/
+│   ├── Dockerfile
+│   └── docker-compose.yml
+│
+├── pyproject.toml
+├── .env.example
+├── .gitignore
+├── README.md
+└── Makefile

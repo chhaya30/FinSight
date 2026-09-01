@@ -1,0 +1,14 @@
+pip install uv
+
+uv init 
+
+uv venv
+
+.venv\Scripts\activate
+
+uv add pymupdf pydantic pydantic-settings python-dotenv 
+
+uv add --dev pytest pytest-cov ruff
+
+uv sync
+

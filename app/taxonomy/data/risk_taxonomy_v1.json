@@ -1,0 +1,287 @@
+{
+  "version": "1.0",
+  "categories": {
+    "operational": {
+      "name": "Operational Risk",
+      "description": "Risks arising from business operations, processes, systems, and people"
+    },
+    "financial": {
+      "name": "Financial Risk",
+      "description": "Risks affecting financial performance, profitability, and financial stability"
+    },
+    "regulatory": {
+      "name": "Regulatory Risk",
+      "description": "Risks from changes in laws, regulations, and compliance requirements"
+    },
+    "strategic": {
+      "name": "Strategic Risk",
+      "description": "Risks to business strategy, competitive position, and long-term viability"
+    },
+    "cyber": {
+      "name": "Cyber Risk",
+      "description": "Cybersecurity threats, data breaches, and information security risks"
+    },
+    "climate": {
+      "name": "Climate Risk",
+      "description": "Physical and transition risks from climate change"
+    },
+    "governance": {
+      "name": "Governance Risk",
+      "description": "Corporate governance, board effectiveness, and oversight risks"
+    },
+    "supply_chain": {
+      "name": "Supply Chain Risk",
+      "description": "Vendor dependencies, logistics disruptions, and procurement risks"
+    },
+    "legal": {
+      "name": "Legal Risk",
+      "description": "Litigation, regulatory actions, and legal proceedings"
+    },
+    "reputational": {
+      "name": "Reputational Risk",
+      "description": "Brand damage, stakeholder trust, and public perception risks"
+    },
+    "talent": {
+      "name": "Talent Risk",
+      "description": "Key personnel retention, recruitment, and succession planning risks"
+    },
+    "technology": {
+      "name": "Technology Risk",
+      "description": "Technology disruption, legacy systems, and digital transformation risks"
+    },
+    "market": {
+      "name": "Market Risk",
+      "description": "Market demand, pricing, foreign exchange, and commodity price risks"
+    },
+    "liquidity": {
+      "name": "Liquidity Risk",
+      "description": "Cash flow, funding, working capital, and solvency risks"
+    },
+    "credit": {
+      "name": "Credit Risk",
+      "description": "Counterparty default, receivables, and credit rating risks"
+    },
+    "esg": {
+      "name": "ESG Risk",
+      "description": "Environmental, social, and governance sustainability risks"
+    },
+    "geopolitical": {
+      "name": "Geopolitical Risk",
+      "description": "Political instability, trade wars, sanctions, and regulatory changes"
+    },
+    "auditor_concern": {
+      "name": "Auditor Concern",
+      "description": "Audit qualifications, going concern, material weaknesses, and control deficiencies"
+    }
+  },
+  "severity_levels": {
+    "critical": {
+      "weight": 5,
+      "description": "Existential threat to business continuity; immediate board attention required"
+    },
+    "high": {
+      "weight": 4,
+      "description": "Significant impact on financials, operations, or reputation; urgent mitigation needed"
+    },
+    "medium": {
+      "weight": 3,
+      "description": "Moderate impact manageable with existing controls; monitoring required"
+    },
+    "low": {
+      "weight": 2,
+      "description": "Minor impact; routine monitoring sufficient"
+    },
+    "informational": {
+      "weight": 1,
+      "description": "Disclosed for transparency; no immediate action required"
+    }
+  },
+  "keywords": {
+    "operational": [
+      "operational risk", "business disruption", "process failure", "system outage",
+      "operational efficiency", "business continuity", "disaster recovery",
+      "factory", "plant", "production halt", "facility", "equipment failure"
+    ],
+    "financial": [
+      "financial risk", "revenue decline", "profitability", "margin pressure",
+      "cost increase", "earnings volatility", "impairment", "write-down",
+      "goodwill", "financial performance", "profit warning"
+    ],
+    "regulatory": [
+      "regulatory risk", "compliance", "regulation", "regulatory change",
+      "statutory requirement", "license", "permit", "regulatory approval",
+      "sebi", "sec", "rbi", "regulatory action", "non-compliance"
+    ],
+    "strategic": [
+      "strategic risk", "competition", "market share", "strategic initiative",
+      "business model", "digital transformation", "innovation",
+      "new entrant", "disruptive technology", "strategic shift"
+    ],
+    "cyber": [
+      "cyber", "cybersecurity", "data breach", "information security",
+      "ransomware", "phishing", "malware", "hacking",
+      "data privacy", "gdpr", "data protection", "cyber attack",
+      "security incident", "unauthorized access"
+    ],
+    "climate": [
+      "climate change", "carbon emission", "net zero", "physical risk",
+      "transition risk", "sustainability", "environmental regulation",
+      "greenhouse gas", "climate-related", "decarbonization"
+    ],
+    "governance": [
+      "governance", "board", "corporate governance", "executive compensation",
+      "succession planning", "independent director", "audit committee",
+      "related party transaction", "whistleblower", "board independence"
+    ],
+    "supply_chain": [
+      "supply chain", "vendor", "supplier", "procurement",
+      "single source", "concentration risk", "third party",
+      "logistics", "raw material shortage", "supply disruption"
+    ],
+    "legal": [
+      "litigation", "lawsuit", "legal proceeding", "contingent liability",
+      "arbitration", "settlement", "class action", "regulatory action",
+      "court order", "injunction", "legal claim"
+    ],
+    "reputational": [
+      "reputation", "brand damage", "public perception",
+      "media scrutiny", "social media", "stakeholder trust",
+      "customer confidence", "boycott", "reputational harm"
+    ],
+    "talent": [
+      "talent", "human capital", "key personnel", "retention",
+      "recruitment", "succession planning", "skills gap",
+      "talent shortage", "executive departure", "leadership change"
+    ],
+    "technology": [
+      "technology risk", "legacy system", "technical debt",
+      "digital transformation", "automation", "artificial intelligence",
+      "ai regulation", "platform migration", "system replacement"
+    ],
+    "market": [
+      "market risk", "demand decline", "pricing pressure",
+      "foreign exchange", "commodity price", "interest rate risk",
+      "equity price", "customer concentration", "market volatility"
+    ],
+    "liquidity": [
+      "liquidity risk", "cash flow", "working capital",
+      "funding risk", "solvency", "debt maturity",
+      "refinancing risk", "covenant breach", "liquidity position"
+    ],
+    "credit": [
+      "credit risk", "counterparty risk", "default risk",
+      "credit rating", "bad debt", "provision for doubtful",
+      "impairment loss", "receivables", "credit exposure"
+    ],
+    "esg": [
+      "esg", "environmental social", "diversity inclusion",
+      "human rights", "community impact", "stakeholder engagement",
+      "sustainable finance", "green bond", "esg rating"
+    ],
+    "geopolitical": [
+      "geopolitical", "political risk", "trade war", "sanctions",
+      "tariff", "export control", "war", "conflict",
+      "regime change", "political instability"
+    ],
+    "auditor_concern": [
+      "auditor", "audit opinion", "going concern", "material weakness",
+      "internal control", "significant deficiency", "emphasis of matter",
+      "qualified opinion", "adverse opinion", "audit qualification"
+    ]
+  },
+  "subcategories": {
+    "operational": [
+      {"id": "business_continuity", "name": "Business Continuity"},
+      {"id": "process_failure", "name": "Process Failure"},
+      {"id": "system_outage", "name": "System Outage"},
+      {"id": "facility_risk", "name": "Facility Risk"}
+    ],
+    "financial": [
+      {"id": "revenue_decline", "name": "Revenue Decline"},
+      {"id": "margin_pressure", "name": "Margin Pressure"},
+      {"id": "cost_overrun", "name": "Cost Overrun"},
+      {"id": "impairment_risk", "name": "Impairment Risk"}
+    ],
+    "regulatory": [
+      {"id": "compliance_risk", "name": "Compliance Risk"},
+      {"id": "regulatory_change", "name": "Regulatory Change"},
+      {"id": "licensing_risk", "name": "Licensing Risk"}
+    ],
+    "strategic": [
+      {"id": "competitive_risk", "name": "Competitive Risk"},
+      {"id": "innovation_risk", "name": "Innovation Risk"},
+      {"id": "business_model_risk", "name": "Business Model Risk"}
+    ],
+    "cyber": [
+      {"id": "data_breach", "name": "Data Breach"},
+      {"id": "ransomware", "name": "Ransomware"},
+      {"id": "privacy_violation", "name": "Privacy Violation"},
+      {"id": "cyber_attack", "name": "Cyber Attack"}
+    ],
+    "climate": [
+      {"id": "physical_climate_risk", "name": "Physical Climate Risk"},
+      {"id": "transition_climate_risk", "name": "Transition Climate Risk"},
+      {"id": "regulatory_climate_risk", "name": "Regulatory Climate Risk"}
+    ],
+    "governance": [
+      {"id": "board_effectiveness", "name": "Board Effectiveness"},
+      {"id": "succession_risk", "name": "Succession Risk"},
+      {"id": "compensation_risk", "name": "Compensation Risk"}
+    ],
+    "supply_chain": [
+      {"id": "vendor_concentration", "name": "Vendor Concentration"},
+      {"id": "logistics_disruption", "name": "Logistics Disruption"},
+      {"id": "raw_material_risk", "name": "Raw Material Risk"}
+    ],
+    "legal": [
+      {"id": "litigation_risk", "name": "Litigation Risk"},
+      {"id": "regulatory_enforcement", "name": "Regulatory Enforcement"},
+      {"id": "contractual_risk", "name": "Contractual Risk"}
+    ],
+    "reputational": [
+      {"id": "brand_damage", "name": "Brand Damage"},
+      {"id": "stakeholder_trust", "name": "Stakeholder Trust"},
+      {"id": "media_risk", "name": "Media Risk"}
+    ],
+    "talent": [
+      {"id": "key_person_risk", "name": "Key Person Risk"},
+      {"id": "succession_risk", "name": "Succession Risk"},
+      {"id": "skills_gap", "name": "Skills Gap"}
+    ],
+    "technology": [
+      {"id": "legacy_system", "name": "Legacy System"},
+      {"id": "digital_transformation", "name": "Digital Transformation"},
+      {"id": "ai_risk", "name": "AI Risk"}
+    ],
+    "market": [
+      {"id": "demand_risk", "name": "Demand Risk"},
+      {"id": "pricing_risk", "name": "Pricing Risk"},
+      {"id": "fx_risk", "name": "Foreign Exchange Risk"}
+    ],
+    "liquidity": [
+      {"id": "funding_risk", "name": "Funding Risk"},
+      {"id": "covenant_risk", "name": "Covenant Risk"},
+      {"id": "refinancing_risk", "name": "Refinancing Risk"}
+    ],
+    "credit": [
+      {"id": "counterparty_risk", "name": "Counterparty Risk"},
+      {"id": "receivables_risk", "name": "Receivables Risk"},
+      {"id": "rating_downgrade", "name": "Rating Downgrade"}
+    ],
+    "esg": [
+      {"id": "environmental_risk", "name": "Environmental Risk"},
+      {"id": "social_risk", "name": "Social Risk"},
+      {"id": "governance_risk", "name": "Governance Risk"}
+    ],
+    "geopolitical": [
+      {"id": "trade_risk", "name": "Trade Risk"},
+      {"id": "sanctions_risk", "name": "Sanctions Risk"},
+      {"id": "political_instability", "name": "Political Instability"}
+    ],
+    "auditor_concern": [
+      {"id": "going_concern", "name": "Going Concern"},
+      {"id": "material_weakness", "name": "Material Weakness"},
+      {"id": "control_deficiency", "name": "Control Deficiency"}
+    ]
+  }
+}

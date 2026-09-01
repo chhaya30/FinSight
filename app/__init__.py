@@ -1,0 +1,1 @@
+"""GlobalRisk AI application package."""

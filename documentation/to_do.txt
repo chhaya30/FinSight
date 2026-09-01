@@ -1,0 +1,2076 @@
+
+GLOBALRISK AI — MASTER PROJECT TODO LIST (Hackathon Edition · 15-Hour Build)
+0. PROJECT STATUS
+Area	Status	Notes
+Repository / Monorepo Setup	NOT STARTED	Need /frontend (Next.js), /backend (FastAPI), /ai (pipeline scripts)
+PDF Ingestion & Parsing	NOT STARTED	pdfplumber + PyMuPDF, section-aware extraction
+Semantic Chunking & Embeddings	NOT STARTED	512-token windows, 50 overlap, all-MiniLM-L6-v2, FAISS
+Risk Delta Detection Engine	NOT STARTED	Cosine similarity, NEW/REMOVED/AMPLIFIED classification
+LLM Explanation (RAG)	NOT STARTED	LangChain RetrievalQA, GPT-3.5-turbo + Ollama fallback
+Backend API (FastAPI)	NOT STARTED	/upload, /compare, /query, /companies, SSE streaming
+Supabase Schema & Integration	NOT STARTED	documents, chunks, companies, risk_snapshots tables
+Frontend Dashboard (Next.js)	NOT STARTED	Landing → Upload → Results (heatmap, diff, streaming summary)
+Cross-Market Support (SEC + BSE/NSE)	NOT STARTED	Section normalization, ticker search
+Demo Dataset & Pre-loading	NOT STARTED	4 companies × 2 years = 8 PDFs pre-indexed
+PDF Export (reportlab)	NOT STARTED	1-page risk summary generation
+Deployment (Vercel + Railway/HF Spaces)	NOT STARTED	Free-tier stack
+Demo Script & Pitch Deck	NOT STARTED	3-min live demo, 6 slides, 90-sec backup recording
+PHASE 1 — FOUNDATION & DATA PIPELINE (0h – 3h 30m)
+Objective
+Establish the monorepo, build the PDF ingestion pipeline, implement semantic chunking + embeddings, create FAISS vector indexes, and set up Supabase schema. By end of Phase 1, the CLI python ingest.py apple_2022.pdf apple_2023.pdf should print chunk counts and confirm index saved.
+Dependencies
+None — this is the starting phase.
+TODO LIST
+1.1 Monorepo Setup
+- Create directory structure:
+globalrisk-ai/
+├── frontend/          # Next.js 14 (App Router)
+├── backend/           # FastAPI
+├── ai/                # Pipeline scripts (ingest.py, compare.py, etc.)
+├── shared/            # Shared types, constants
+└── docker-compose.yml # Optional: local Supabase/PostgreSQL
+- Initialize git repo with .gitignore (node_modules, pycache, .env, *.faiss, venv)
+- Create root README.md with project overview and quick-start commands
+1.2 Backend (FastAPI) Scaffold
+- backend/pyproject.toml / requirements.txt:
+- fastapi, uvicorn, python-multipart, supabase-py, langchain, langchain-openai, langchain-community
+- sentence-transformers, faiss-cpu, pdfplumber, pymupdf, pydantic, pydantic-settings
+- python-dotenv, httpx, tiktoken
+- backend/app/main.py — FastAPI app with CORS, routers
+- backend/app/core/config.py — Pydantic Settings (OPENAI_API_KEY, SUPABASE_URL, SUPABASE_KEY)
+- backend/app/api/routes/ — upload.py, compare.py, query.py, companies.py
+- backend/app/services/ — pdf_parser.py, chunker.py, embedder.py, faiss_manager.py
+- backend/app/models/ — Pydantic models for API requests/responses
+- backend/app/db/supabase.py — Supabase client singleton
+1.3 AI Pipeline Scripts (/ai)
+- ai/ingest.py — CLI entry: python ingest.py <pdf_path> [--company NAME] [--year YEAR]
+- ai/pdf_parser.py — Section-aware extraction using pdfplumber:
+- Extract text by section: "Risk Factors", "MD&A", "Financial Statements", "Business"
+- Handle SEC 10-K and India DRHP/Annual Report structures
+- Return: {sections: [{title, text, page_start, page_end}], metadata: {company, year, source}}
+- ai/chunker.py — 512-token overlapping windows (50-token overlap):
+- Use tiktoken (cl100k_base) for token counting
+- Preserve section metadata in each chunk
+- Output: [{text, tokens, section, page, chunk_id}]
+- ai/embedder.py — sentence-transformers/all-MiniLM-L6-v2:
+- Batch encode chunks (batch_size=32)
+- Return numpy array (n_chunks, 384)
+- ai/faiss_manager.py — FAISS IndexFlatIP (cosine similarity):
+- create_index(embeddings) → faiss.Index
+- save_index(index, path) / load_index(path)
+- search(index, query_embedding, k=5) → distances, indices
+1.4 Supabase Schema & Integration
+- Create Supabase project (free tier)
+- Run SQL migrations for tables:
+-- companies
+CREATE TABLE companies (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  ticker TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL,
+  market TEXT CHECK (market IN ('SEC', 'NSE', 'BSE')),
+  sector TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- documents
+CREATE TABLE documents (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id UUID REFERENCES companies(id),
+  year INT NOT NULL,
+  source_url TEXT,
+  file_path TEXT,           -- Supabase Storage path
+  faiss_index_path TEXT,    -- Supabase Storage path
+  chunk_count INT,
+  status TEXT DEFAULT 'processing',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- chunks
+CREATE TABLE chunks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  document_id UUID REFERENCES documents(id),
+  chunk_index INT NOT NULL,
+  text TEXT NOT NULL,
+  section TEXT,
+  page_start INT,
+  page_end INT,
+  token_count INT,
+  embedding_id INT,         -- FAISS internal index
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- risk_snapshots (for comparison results)
+CREATE TABLE risk_snapshots (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  doc_a_id UUID REFERENCES documents(id),
+  doc_b_id UUID REFERENCES documents(id),
+  new_risks JSONB,
+  removed_risks JSONB,
+  amplified_risks JSONB,
+  llm_summary TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Enable RLS
+ALTER TABLE companies ENABLE ROW LEVEL SECURITY;
+ALTER TABLE documents ENABLE ROW LEVEL SECURITY;
+ALTER TABLE chunks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE risk_snapshots ENABLE ROW LEVEL SECURITY;
+- backend/app/db/supabase.py — Initialize client, helper functions for CRUD
+- Test: insert company, upload document, store chunks, verify retrieval
+1.5 PDF Ingestion API (POST /upload)
+- backend/app/api/routes/upload.py:
+- Accept multipart/form-data: file, company_ticker, year, market
+- Validate: PDF only, max 50MB
+- Save to Supabase Storage (documents/{company_ticker}/{year}/{uuid}.pdf)
+- Trigger background processing (or sync for hackathon): parse → chunk → embed → store
+- Return: {document_id, status, chunk_count}
+1.6 Test with Sample PDFs
+- Download Apple 10-K 2022 & 2023 from SEC EDGAR
+- Download Infosys Annual Report 2022 & 2023 from BSE
+- Run python ai/ingest.py apple_2022.pdf --company AAPL --year 2022 --market SEC
+- Verify: chunks created, FAISS index saved to Supabase Storage, DB records inserted
+- Target: < 30s per 100-page PDF
+Deliverables
+- Working monorepo with backend, frontend, ai folders
+- python ingest.py CLI working end-to-end
+- FAISS index persisted to Supabase Storage
+- Supabase tables populated with test data
+- /upload API functional
+Definition of Done
+- git status shows clean monorepo structure
+- cd backend && uvicorn app.main:app --reload starts without errors
+- python ai/ingest.py sample.pdf completes in < 30s
+- FAISS index file exists in Supabase Storage
+- Supabase dashboard shows rows in documents, chunks tables
+- curl -X POST /upload returns document_id
+Technical Risks
+- pdfplumber may struggle with complex tables in Indian DRHPs — fallback to PyMuPDF text extraction
+- FAISS index persistence to Supabase Storage: serialize with faiss.write_index() to bytes, upload
+- Token counting must match embedding model — use tiktoken consistently
+- Section detection keywords differ between SEC (Item 1A) and India (Risk Factors) — build market-specific keyword lists
+PHASE 2 — RISK DELTA ENGINE (AI CORE) (3h 30m – 7h)
+Objective
+Build the year-over-year comparison engine: load two FAISS indexes, compute pairwise cosine similarity, classify risks as NEW/REMOVED/AMPLIFIED, and generate LLM explanations via RAG. Expose /compare API returning structured JSON.
+Dependencies
+Phase 1 complete (FAISS indexes exist for two documents, Supabase has chunks)
+TODO LIST
+2.1 Compare Engine (ai/compare.py)
+- load_document_index(doc_id) — download FAISS index + chunks from Supabase
+- compute_pairwise_similarity(index_a, index_b, chunks_a, chunks_b):
+- For each chunk in A: search top-1 in B → cosine similarity
+- For each chunk in B: search top-1 in A → cosine similarity
+- Return similarity matrix (n_chunks_a, n_chunks_b) or paired results
+- Risk classification logic:
+- NEW: chunk in B with max_sim < 0.4 to any chunk in A
+- REMOVED: chunk in A with max_sim < 0.4 to any chunk in B
+- AMPLIFIED: max_sim 0.4–0.7 AND severity keywords present in B but not A
+- UNCHANGED: max_sim > 0.7 (optional, for completeness)
+- Severity keyword dictionary:
+SEVERITY_KEYWORDS = {
+    'critical', 'material', 'significant', 'adverse', 'unprecedented',
+    'severe', 'regulatory', 'lawsuit', 'breach', 'investigation',
+    'penalty', 'fine', 'sanction', 'default', 'bankruptcy',
+    'liquidity', 'solvency', 'going concern', 'impairment'
+}
+- Output structured JSON:
+{
+  "new_risks": [{"text": "...", "section": "Risk Factors", "page": 12, "similarity": 0.23}],
+  "removed_risks": [{"text": "...", "section": "MD&A", "page": 8, "similarity": 0.31}],
+  "amplified_risks": [{"text_a": "...", "text_b": "...", "severity_keywords": ["material", "lawsuit"]}],
+  "metadata": {"doc_a": "AAPL-2022", "doc_b": "AAPL-2023", "total_chunks_a": 450, "total_chunks_b": 480}
+}
+2.2 RAG Chain for LLM Explanation (ai/rag_chain.py)
+- LangChain RetrievalQA setup:
+- Retriever: custom FAISS retriever wrapping faiss_manager.search()
+- LLM: ChatOpenAI(model="gpt-3.5-turbo", temperature=0, streaming=True)
+- Fallback: Ollama (llama3:8b) via ChatOllama if OpenAI fails
+- Prompt template:
+PROMPT_TEMPLATE = """You are a senior financial risk analyst. Given these disclosure excerpts from {company} annual reports ({year_a} vs {year_b}), explain the key risk changes in 3 concise bullet points. Focus on: what new risks appeared, what risks were removed, and what risks intensified. Cite specific language changes.
+
+Context from {year_a}:
+{context_a}
+
+Context from {year_b}:
+{context_b}
+
+Changes detected:
+- New risks: {new_count}
+- Removed risks: {removed_count}
+- Amplified risks: {amplified_count}
+
+Analysis:"""
+- Retrieval: fetch top-5 changed chunks (new + removed + amplified) as context
+- Streaming: yield tokens via SSE for real-time UI effect
+2.3 /compare API Endpoint
+- backend/app/api/routes/compare.py:
+- POST /compare — Body: {doc_id_a, doc_id_b}
+- Load both document indexes + chunks
+- Run compare engine → classification
+- Run RAG chain → LLM summary (streaming via SSE)
+- Save result to risk_snapshots table
+- Return: {new_risks, removed_risks, amplified_risks, llm_summary, snapshot_id}
+- GET /compare/{snapshot_id} — retrieve stored comparison
+2.4 /query Endpoint (Free-text Q&A)
+- backend/app/api/routes/query.py:
+- POST /query — Body: {doc_id, question}
+- Embed question → search FAISS → top-k chunks → LLM answer with citations
+- Return: {answer, sources: [{text, page, section}]}
+2.5 /companies Endpoint
+- backend/app/api/routes/companies.py:
+- GET /companies — list all companies (for search autocomplete)
+- GET /companies/{ticker}/documents — list available years
+- Pre-seed with 4 demo companies: AAPL, TSLA (SEC), INFY, RELIANCE (BSE/NSE)
+2.6 Unit Tests for Risk Classification
+- tests/test_compare.py:
+- Mock chunks with known differences
+- Verify NEW/REMOVED/AMPLIFIED classification matches expected
+- Test edge cases: identical docs, completely different docs
+2.7 Ollama Fallback Setup
+- Install Ollama locally, pull llama3:8b
+- Add try/except in RAG chain: OpenAI → Ollama
+- Test offline mode works
+Deliverables
+- ai/compare.py with classification logic
+- ai/rag_chain.py with streaming RAG
+- /compare, /query, /companies APIs functional
+- Risk snapshot persistence to Supabase
+- Unit tests passing
+Definition of Done
+- POST /compare with two doc IDs returns valid JSON in < 15s
+- Classification accuracy: manual spot-check on Apple 2022 vs 2023 catches known changes (e.g., new cybersecurity language)
+- LLM summary streams via SSE, 3 bullet points, cites specific changes
+- Ollama fallback works when OpenAI key invalid
+- GET /companies returns 4 demo companies with documents
+Technical Risks
+- Cosine similarity threshold (0.4) may need tuning per market — start with 0.4, adjust after testing
+- FAISS index loading from Supabase Storage adds latency — cache in memory after first load
+- OpenAI rate limits during demo — pre-generate summaries for demo companies (Phase 4)
+- Chunk-level comparison may miss document-level context — ensure section metadata preserved
+PHASE 3 — FRONTEND DASHBOARD (7h – 11h 30m)
+Objective
+Build the polished 3-screen Next.js dashboard: Landing → Upload (drag-drop 2 PDFs) → Results Dashboard with risk heatmap, side-by-side diff, streaming LLM summary. Deploy to Vercel.
+Dependencies
+Phase 1 (backend APIs exist), Phase 2 (/compare endpoint working)
+TODO LIST
+3.1 Next.js 14 Project Setup
+- npx create-next-app@latest frontend --typescript --tailwind --eslint --app --src-dir --import-alias "@/*"
+- Install deps: shadcn-ui, recharts, pdfjs-dist, lucide-react, clsx, tailwind-merge
+- npx shadcn-ui@latest init — configure base components
+- Add shadcn components: button, card, input, label, progress, select, tabs, tooltip, dropdown-menu, avatar, badge, skeleton, separator, scroll-area
+- src/lib/utils.ts — cn() helper
+- src/app/globals.css — Tailwind directives + custom CSS variables for risk colors
+3.2 Theme & Layout
+- Dark mode by default (PRD: "looks more professional on stage projectors")
+- src/components/providers/theme-provider.tsx — next-themes
+- src/components/layout/ — Header (logo, dark toggle), Main container
+- Risk color palette (CSS variables):
+--risk-new: #22c55e;      /* green */
+--risk-removed: #ef4444;  /* red */
+--risk-amplified: #f59e0b; /* amber */
+--risk-unchanged: #6b7280; /* gray */
+--risk-critical: #dc2626;
+--risk-high: #f97316;
+--risk-medium: #eab308;
+--risk-low: #22c55e;
+3.3 Screen 1: Landing Page (/)
+- src/app/page.tsx:
+- Hero: "Analysts spend 3 weeks comparing reports. We do it in 30 seconds."
+- Value props: Cross-market (US+India), AI-powered, Explainable, Sub-minute
+- CTA button → /upload
+- Demo companies showcase (Apple, Tesla, Infosys, Reliance logos)
+3.4 Screen 2: Upload Page (/upload)
+- src/app/upload/page.tsx:
+- Two drag-drop zones: "Year A (Base)" + "Year B (Compare)"
+- Each zone: file input, company selector (autocomplete from /companies), year selector
+- Or: single "Compare Two Reports" flow with company + year A + year B selectors
+- Progress indicators per stage:
+1. Uploading PDFs
+2. Extracting & chunking
+3. Generating embeddings
+4. Comparing risks
+5. Generating AI summary
+- Poll /compare status or use SSE for real-time progress
+- On complete → redirect to /results?snapshot_id=...
+3.5 Screen 3: Results Dashboard (/results)
+- src/app/results/page.tsx — Main dashboard layout:
+- Top Bar: Company name, Year A ↔ Year B slider, risk score card (0-10)
+- Risk Delta Summary Cards: 3 cards — New (green), Removed (red), Amplified (amber) with counts
+- Risk Heatmap (Recharts):
+- Y-axis: Severity (Critical, High, Medium, Low)
+- X-axis: Risk Categories (Regulatory, Financial, Operational, Cyber, Legal, ESG, Strategic)
+- Cell color intensity = count
+- Click cell → filter diff view
+- Side-by-Side Text Diff:
+- Left: Year A text, Right: Year B text
+- Highlight: NEW (green bg), REMOVED (red bg), CHANGED (amber bg)
+- Sync scrolling, line numbers, section labels
+- Use diff-match-patch or custom diff algorithm
+- LLM Summary Card:
+- Streaming text (SSE from /compare → typewriter animation)
+- "Regenerate" button
+- Copy/Export buttons
+- Company Search Autocomplete (header, accessible from any screen)
+3.6 Reusable Components
+- src/components/dashboard/RiskHeatmap.tsx — Recharts Heatmap with tooltip
+- src/components/dashboard/TextDiff.tsx — Side-by-side with highlighted spans
+- src/components/dashboard/RiskScoreCard.tsx — Gauge/score 0-10 with label
+- src/components/dashboard/StreamingSummary.tsx — SSE consumer, typewriter effect
+- src/components/ui/CompanyAutocomplete.tsx — Fetches /companies, debounced search
+- src/components/ui/ProgressSteps.tsx — 5-step progress with current stage highlight
+3.7 API Integration Layer
+- src/lib/api.ts — typed fetch wrappers:
+- uploadPdf(file, company, year) → {document_id}
+- compareDocuments(docIdA, docIdB) → SSE stream or polling
+- queryDocument(docId, question) → {answer, sources}
+- getCompanies() → Company[]
+- React Query / SWR for caching, loading states
+3.8 Responsive & Polish
+- Mobile-first responsive (stack heatmap/diff on < 768px)
+- Loading skeletons for all async components
+- Empty states: "No risks detected", "Upload reports to begin"
+- Error toasts (sonner or shadcn toast)
+- PDF.js viewer modal for original document reference (optional, stretch)
+3.9 Deploy to Vercel
+- Push to GitHub → Import in Vercel
+- Environment variables: NEXT_PUBLIC_API_URL
+- Verify production build passes
+- Test live URL end-to-end
+Deliverables
+- Next.js 14 app deployed to Vercel
+- 3-screen flow: Landing → Upload → Results
+- Risk heatmap (Recharts), side-by-side diff, streaming LLM summary
+- Company autocomplete, dark mode, responsive
+- Real-time progress during processing
+Definition of Done
+- vercel --prod deploys successfully
+- Landing → Upload → Results flow works on live URL
+- Heatmap renders with color-coded severity × category
+- Diff view shows green/red/amber highlights correctly
+- LLM summary streams token-by-token (typewriter effect)
+- Dark mode default, toggle works
+- Mobile layout usable (stacked cards)
+- No console errors in production
+Technical Risks
+- Recharts heatmap with dynamic categories — ensure data shape matches
+- SSE streaming in Next.js App Router — use EventSource or fetch + ReadableStream
+- PDF.js bundle size — lazy load only when "View Original" clicked
+- CORS between Vercel frontend and Railway backend — configure properly
+PHASE 4 — POLISH, DEMO PREP & SUBMISSION (11h 30m – 15h)
+Objective
+Zero-bug demo readiness. Pre-load all demo companies, optimize performance, add PDF export, prepare demo script/pitch deck/backup recording, deploy final versions.
+Dependencies
+Phases 1-3 complete and integrated
+TODO LIST
+4.1 Pre-load Demo Companies (Sakshi + Riya)
+- Curate 4 companies × 2 years = 8 PDFs:
+- Apple (AAPL) — SEC 10-K 2022, 2023
+- Tesla (TSLA) — SEC 10-K 2022, 2023
+- Infosys (INFY) — BSE Annual Report 2022, 2023
+- Reliance (RELIANCE) — BSE Annual Report 2022, 2023
+- Run ingestion for all 8: python ai/ingest.py for each
+- Verify FAISS indexes saved to Supabase Storage
+- Pre-generate LLM summaries for all 6 pair combinations (AAPL, TSLA, INFY, RELIANCE) + 2 cross-market demo pairs
+- Cache summaries in risk_snapshots table for instant demo
+4.2 Happy Path Rehearsal (Full Team)
+- Run demo flow 5× end-to-end:
+1. Open live URL
+2. Select Apple 2022 vs 2023 (pre-loaded)
+3. Click Compare → watch progress → dashboard appears
+4. Point out heatmap, diff, streaming summary
+5. Switch to Infosys 2022 vs 2023
+6. Show cross-market: "Same AI works for India too"
+- Measure time per step, fix bottlenecks > 30s total
+4.3 PDF Export Feature (ai/export.py + Frontend)
+- ai/export.py — reportlab generator:
+- Input: comparison JSON + company metadata
+- Output: 1-page PDF with:
+- Header: Company, Years, Risk Score
+- Summary bullets (from LLM)
+- Heatmap visualization (simple table with colored cells)
+- Top 3 New / Removed / Amplified risks with citations
+- Footer: "Generated by GlobalRisk AI · {timestamp}"
+- POST /export API endpoint → returns PDF binary
+- Frontend: "Download PDF Report" button on results page
+4.4 Error Handling & Edge Cases
+- Timeout fallbacks: 30s per stage, show friendly message
+- Empty states: "No significant risk changes detected"
+- Loading skeletons for all components
+- File validation: "Please upload PDF only", "File too large (>50MB)"
+- API error toasts: "Comparison failed. Please try again."
+4.5 Performance Optimization
+- Cache FAISS queries in memory (lru_cache on index loading)
+- Pre-generate LLM summaries for demo companies (done in 4.1)
+- Enable Next.js static generation for landing page
+- Compress FAISS indexes (use IndexFlatIP, already small)
+- Backend: connection pooling for Supabase
+4.6 Deploy Production Backend
+- Deploy FastAPI to Railway or HuggingFace Spaces
+- Set environment variables: OPENAI_API_KEY, SUPABASE_URL, SUPABASE_KEY
+- Verify /compare works on deployed URL
+- Update frontend NEXT_PUBLIC_API_URL to production backend
+- Re-deploy frontend to Vercel
+4.7 Demo Script (3 Minutes)
+- 0:00–0:30 Hook: "Analysts spend 3 weeks comparing reports. We do it in 30 seconds."
+- 0:30–1:00 Live upload: Select Apple 2022 vs 2023 (pre-loaded) → click Compare
+- 1:00–1:45 Wow moment: Heatmap appears → point out NEW cybersecurity risk in 2023 → show side-by-side diff with highlighted language
+- 1:45–2:15 Intelligence: LLM summary streaming → "Here's why this matters: new SEC cyber disclosure rules..."
+- 2:15–2:45 Cross-market: Switch to Infosys 2022 vs 2023 → "Same engine, India market"
+- 2:45–3:00 Close: "GlobalRisk AI — unified US+India risk intelligence. Live now." → Download PDF
+4.8 Pitch Deck (6 Slides Max)
+- Slide 1: Problem — 300-page reports, manual comparison impossible, no cross-market tool
+- Slide 2: Solution — AI-powered semantic diff, 30 seconds, explainable
+- Slide 3: Tech Stack — Next.js, FastAPI, FAISS, LangChain, Supabase (visual diagram)
+- Slide 4: Live Demo — Screenshot of dashboard with heatmap
+- Slide 5: Impact — $299/mo per analyst, API licensing, 10M+ chunks scalable
+- Slide 6: Team — Riya (AI/ML), Chhaya (Backend), Stuti (Frontend), Sakshi (Data/Demo)
+4.9 Backup Screen Recording
+- Record 90-second full demo flow using OBS Studio
+- Include: upload → processing → heatmap → diff → summary → PDF export
+- Save as MP4, test playback
+4.10 Submission Package
+- README.md with: problem, solution, tech stack, setup instructions, demo URL
+- GitHub repo public with clean commit history
+- Submission form: live URL, GitHub URL, video link, team details
+- Judges Q&A prep (Sakshi):
+- Accuracy: "Tested on 20 known changes, 85% F1"
+- Scalability: "FAISS handles 10M+ chunks; Supabase scales"
+- Monetization: "SaaS $299/mo analyst, API to Bloomberg"
+- RAG vs Fine-tuning: "RAG = citations, no retraining, works on private docs"
+Deliverables
+- Live demo URL (Vercel + Railway)
+- Pre-loaded demo companies with instant comparison
+- PDF export working
+- 3-min demo script rehearsed
+- 6-slide pitch deck
+- 90-sec backup recording
+- Submission-ready GitHub repo + README
+Definition of Done
+- Live URL loads in < 3s
+- Pre-loaded comparisons complete in < 15s (cached)
+- All 4 demo companies work flawlessly
+- PDF export generates valid 1-page PDF
+- Demo script runs to 3:00 ± 15s
+- Pitch deck exported to PDF
+- Backup recording plays without issues
+- Submission form filled completely
+Technical Risks
+- Railway/HF Spaces cold starts — keep backend warm with cron ping
+- Supabase free tier limits — monitor during rehearsal
+- OpenAI API latency — cached summaries eliminate this for demo
+- Vercel build failures — test vercel build locally first
+MASTER EXECUTION ORDER (15-Hour Critical Path)
+HOUR 0.0–0.5   → Monorepo setup + git init + Supabase project creation
+HOUR 0.5–1.5   → Backend scaffold (FastAPI, Supabase client, config)
+HOUR 1.5–2.5   → AI pipeline: pdf_parser → chunker → embedder → faiss_manager
+HOUR 2.5–3.0   → Ingest CLI + test with 2 PDFs
+HOUR 3.0–3.5   → Supabase schema + /upload API + verify DB records
+                ↓ PHASE 1 COMPLETE (3h 30m)
+
+HOUR 3.5–4.5   → Compare engine: pairwise similarity + NEW/REMOVED/AMPLIFIED logic
+HOUR 4.5–5.5   → RAG chain: LangChain + GPT-3.5-turbo + prompt template
+HOUR 5.5–6.0   → Ollama fallback + streaming SSE
+HOUR 6.0–6.5   → /compare API + risk_snapshots persistence
+HOUR 6.5–7.0   → /query + /companies APIs + unit tests
+                ↓ PHASE 2 COMPLETE (7h)
+
+HOUR 7.0–7.5   → Next.js scaffold + shadcn/ui + Tailwind + theme
+HOUR 7.5–8.5   → Landing + Upload pages + API integration
+HOUR 8.5–9.5   → Results Dashboard: heatmap + diff + streaming summary
+HOUR 9.5–10.5  → Company autocomplete + responsive + dark mode
+HOUR 10.5–11.5 → Deploy Vercel + integrate with production backend
+                ↓ PHASE 3 COMPLETE (11h 30m)
+
+HOUR 11.5–12.5 → Pre-load 8 demo PDFs + pre-generate 6 summaries
+HOUR 12.5–13.0 → Happy path rehearsal (5×) + fix bottlenecks
+HOUR 13.0–13.5 → PDF export (reportlab) + error handling + polish
+HOUR 13.5–14.0 → Deploy production backend + final Vercel deploy
+HOUR 14.0–14.5 → Demo script rehearsal + pitch deck + screen recording
+HOUR 14.5–15.0 → Final verification + submission package
+                ↓ PHASE 4 COMPLETE (15h) → SUBMISSION
+PARALLEL WORKSTREAMS (Per PRD Team Assignments)
+Track	Member	Role	Phases	Key Deliverables
+Track A — AI/ML [AI/ML]	Riya	AI/ML Lead	1, 2	ingest.py, chunker.py, embedder.py, faiss_manager.py, compare.py, rag_chain.py, risk classification logic, severity keywords, unit tests
+Track B — Backend [BACKEND]	Chhaya	Backend Engineer	1, 2, 4	FastAPI project, Supabase schema, /upload, /compare, /query, /companies, SSE streaming, Railway/HF Spaces deploy, CORS, rate limiting
+Track C — Frontend [FRONTEND]	Stuti	Frontend Engineer	3, 4	Next.js 14 + shadcn/ui, Landing/Upload/Results pages, RiskHeatmap, TextDiff, StreamingSummary, CompanyAutocomplete, Vercel deploy
+Track D — Data & Demo [DATA]	Sakshi	Data & Demo Strategist	1, 4	8 demo PDFs curation, ingestion validation, risk output verification, PDF export (reportlab), demo script, pitch deck, backup recording, README
+Coordination Points:
+- Hour 3.5: Riya hands off working ingest.py + FAISS indexes → Chhaya integrates /upload → Stuti builds Upload page
+- Hour 7.0: Chhaya delivers /compare API → Stuti builds Results Dashboard
+- Hour 11.5: All tracks converge → Sakshi pre-loads demo data, full team rehearses
+PRIORITY MATRIX (Hackathon Edition)
+Priority	Module	Must-Have for Demo
+P0 — Critical Path	Monorepo + FastAPI + Next.js scaffold	✅
+ 	PDF parsing + section extraction (pdfplumber)	✅
+ 	512-token chunking + all-MiniLM-L6-v2 embeddings	✅
+ 	FAISS index create/save/load + Supabase Storage	✅
+ 	Pairwise cosine similarity + NEW/REMOVED/AMPLIFIED classification	✅
+ 	/compare API + structured JSON response	✅
+ 	RAG chain + GPT-3.5-turbo + 3-bullet summary	✅
+ 	Landing → Upload → Results 3-screen flow	✅
+ 	Risk heatmap (Recharts) + side-by-side diff	✅
+ 	SSE streaming LLM summary	✅
+ 	4 demo companies pre-loaded + cached	✅
+ 	Live deployment (Vercel + Railway)	✅
+P1 — High Impact	/query endpoint (free-text Q&A)	⭐ Nice for Q&A
+ 	PDF export (reportlab)	⭐ Strong closer
+ 	Company search autocomplete	⭐ Professional touch
+ 	Ollama fallback	⭐ Reliability
+ 	Dark mode default	⭐ Stage presence
+ 	Company logos in autocomplete	⭐ Visual polish
+P2 — Polish	Responsive mobile layout	 
+ 	Loading skeletons + empty states	 
+ 	Error toasts + timeout handling	 
+ 	Pitch deck + demo script + recording	 
+P3 — Stretch	PDF.js viewer modal	 
+ 	Cross-market comparison (SEC vs BSE same screen)	 
+ 	Multiple company comparison (>2)	 
+RECOMMENDED FIRST 10 TASKS (Start Here — Hour 0)
+ 1. Create monorepo structure (globalrisk-ai/{frontend,backend,ai,shared}) + git init + .gitignore
+ 2. Create Supabase project (free tier) → note SUPABASE_URL, SUPABASE_KEY → add to .env
+ 3. Scaffold FastAPI backend (backend/pyproject.toml, app/main.py, app/core/config.py, Supabase client)
+ 4. Build ai/pdf_parser.py — section-aware extraction for SEC 10-K (Item 1A, Item 7) and India DRHP (Risk Factors, MD&A)
+ 5. Build ai/chunker.py — 512-token windows, 50 overlap, tiktoken, preserve section/page metadata
+ 6. Build ai/embedder.py — sentence-transformers/all-MiniLM-L6-v2 batch encoding
+ 7. Build ai/faiss_manager.py — IndexFlatIP create/save/load/search + Supabase Storage upload/download
+ 8. Create ai/ingest.py CLI — orchestrates parse → chunk → embed → store → returns chunk count
+ 9. Run first ingestion test — python ai/ingest.py apple_2022.pdf --company AAPL --year 2022 --market SEC
+10. Design Supabase schema — run SQL for companies, documents, chunks, risk_snapshots tables
+This TODO list is derived directly from the GlobalRisk AI PRD (Hackathon Edition v1.0) — 15-hour build, 4-member team, US+India cross-market risk intelligence. Every task maps to a specific PRD requirement with measurable definition-of-done criteria for hackathon execution.
+
+
+
+
+
+
+
+
+
+
+
+
+GLOBALRISK AI — MASTER PROJECT TODO LIST
+0. PROJECT STATUS
+Area	Status	Notes
+Repository Setup	NOT STARTED	No git repo, no Docker, no project structure
+Project Architecture	NOT STARTED	Need to define full system architecture from PRD
+Environment Configuration	NOT STARTED	No .env, no config management
+Dependency Management	NOT STARTED	No requirements.txt, package.json, pyproject.toml
+Configuration Management	NOT STARTED	No settings module
+Logging	NOT STARTED	No logging infrastructure
+Error Handling	NOT STARTED	No global exception handlers
+Testing Strategy	NOT STARTED	No pytest, vitest, playwright setup
+Documentation	NOT STARTED	No README, API docs, architecture docs
+Risk Taxonomy (Research Asset)	NEEDS VALIDATION	PRD references existing taxonomy work — must locate and validate
+Prompt Engineering (Research Asset)	NEEDS VALIDATION	PRD references existing prompt experiments — must locate and validate
+Document Ingestion	NOT STARTED	PDF upload, parsing, OCR fallback
+Document Structure Analysis	NOT STARTED	Section detection, risk section identification
+Chunking Strategy	NOT STARTED	Need to design and evaluate multiple approaches
+Embeddings & Retrieval	NOT STARTED	Vector DB, hybrid search, reranking
+Core Risk AI Engine	NOT STARTED	Risk detection, extraction, classification, severity, confidence
+Risk Evolution Engine	NOT STARTED	Multi-year comparison, new/removed/modified detection
+Executive Dashboard	NOT STARTED	Company overview, risk distribution, timeline, financial snapshot
+Risk Explorer	NOT STARTED	Semantic screening across companies
+Financial Health Intelligence	NOT STARTED	Financial metrics, trends, risk-vs-financial correlation
+Market Intelligence	NOT STARTED	News feed, regulatory filings, sentiment, event timeline
+Industry Intelligence	NOT STARTED	Peer comparison, sector heatmap, benchmarking
+Multi-Factor Risk Scanner	NOT STARTED	AND/OR logic across risk factors
+Confidence-Scored Classification	NOT STARTED	Weighted confidence model (exact/semantic/inferred)
+Executive Report Generator	NOT STARTED	PDF export with all intelligence
+Custom Risk Taxonomy Rules	NOT STARTED	Configurable risk categories and severity thresholds
+Analyst Workspace	NOT STARTED	Watchlists, saved scans, notes, preferences
+PDF Annotation Workspace	NOT STARTED	Highlight, notes, bookmarks, AI suggestions, collaboration
+Authentication & Workspaces	NOT STARTED	Auth.js/Clerk, per-team isolation
+Dark/Light Theme + Responsive	NOT STARTED	Framer Motion, presentation mode, search-everywhere
+Test Coverage & Deployment	NOT STARTED	Unit, integration, E2E tests; cloud deployment
+PostgreSQL Schema	NOT STARTED	All entities from PRD data model
+Vector Database Schema	NOT STARTED	pgvector or Pinecone setup
+FastAPI Backend	NOT STARTED	All API routes, async processing, job tracking
+React Frontend	NOT STARTED	All UI components per PRD features
+PHASE A — PROJECT FOUNDATION
+Objective
+Establish the complete project infrastructure: repository, Docker environment, configuration management, logging, error handling, testing framework, and documentation. This creates the foundation upon which all other phases depend.
+Dependencies
+None — this is the starting phase.
+TODO LIST
+-   Initialize Git repository with conventional commit structure
+- git init with main branch
+- Configure .gitignore for Python, Node, Docker, IDE, secrets
+- Set up branch protection rules (main, develop)
+- Create CONTRIBUTING.md with commit conventions
+-   Create Docker Compose development environment
+- docker-compose.yml with services: postgres, pgvector, redis, backend, frontend
+- Dockerfile.backend (Python 3.11, FastAPI, uv/pip)
+- Dockerfile.frontend (Node 20, Vite, React 18)
+- Dockerfile.worker (Celery/background jobs)
+- .dockerignore files
+- Health checks for all services
+- Volume mounts for hot reload in dev
+-   Configure Python backend project structure
+- pyproject.toml with dependencies: fastapi, uvicorn, sqlalchemy, alembic, pgvector, pydantic, pydantic-settings, python-multipart, httpx, anthropic, openai, tenacity, structlog, pytest, pytest-asyncio, pytest-cov
+- app/ package structure: api, core, db, models, schemas, services, workers, utils, prompts
+- app/core/config.py — Pydantic Settings for all env vars
+- app/core/logging.py — structlog configuration with JSON output
+- app/core/exceptions.py — custom exception hierarchy
+- app/core/security.py — password hashing, JWT tokens
+- app/db/session.py — async SQLAlchemy engine, session factory
+- app/db/base.py — declarative base
+-   Configure Frontend project structure
+- package.json with: react, react-dom, vite, tailwindcss, @tanstack/react-query, zustand, recharts, d3, framer-motion, react-router-dom, @headlessui/react, @heroicons/react, date-fns, clsx, tailwind-merge, zod, react-hook-form, @hookform/resolvers
+- vite.config.ts with path aliases, proxy to backend
+- tailwind.config.ts with custom theme (colors, fonts, severity gradient)
+- src/ structure: components, pages, hooks, stores, services, types, utils, constants, layouts
+- src/main.tsx entry with providers (QueryClient, Theme, Auth)
+- src/app.css with Tailwind directives and CSS variables
+-   Database migration infrastructure
+- alembic.ini and alembic/env.py configured for async
+- Initial migration script template
+- Migration naming convention
+-   Testing infrastructure
+- Backend: pytest.ini, conftest.py with async fixtures, testcontainers for postgres
+- Frontend: vitest.config.ts, vitest.setup.ts, @testing-library/react
+- E2E: playwright.config.ts with base URL, projects for chromium/firefox/webkit
+- CI test scripts in package.json and pyproject.toml
+-   Code quality tooling
+- Backend: ruff, mypy, black configs
+- Frontend: eslint.config.js, prettier.config.js, typescript strict mode
+- Pre-commit hooks with pre-commit framework
+-   Documentation scaffolding
+- README.md with project overview, quick start, architecture diagram
+- docs/architecture.md — system design, data flow, component diagram
+- docs/api.md — API design principles
+- docs/data-model.md — ER diagram, table definitions
+- docs/deployment.md — Docker, environment variables, scaling
+-   Environment configuration
+- .env.example with all required variables documented
+- .env.local gitignored for local development
+- Separate configs for dev, staging, prod
+Deliverables
+- Initialized git repository with complete project structure
+- Running docker-compose up starts all services (postgres, redis, backend, frontend)
+- Backend responds to /health endpoint
+- Frontend loads at localhost:5173 with hot reload
+- Database migrations run successfully
+- All linting/typechecking passes
+- Basic CI pipeline configuration (GitHub Actions)
+Definition of Done
+- docker-compose up -d brings up all 5 services healthy
+- curl http://localhost:8000/health returns {"status": "ok"}
+- Frontend loads without console errors
+- pytest runs (0 tests pass initially)
+- ruff check . and mypy app/ pass
+- npm run lint and npm run typecheck pass
+- Alembic can create and run migrations against postgres
+Technical Risks
+- pgvector extension may not be available in default postgres image — need custom Dockerfile or postgis/pgvector image
+- Python 3.11 + specific ML dependencies may have wheel availability issues on Linux/ARM
+- TailwindCSS v4 migration changes (if using v4) — stick to v3 for stability
+- Auth.js/Clerk integration requires early decision — affects both backend and frontend auth flow
+PHASE B — RESEARCH ASSET INTEGRATION
+Objective
+Integrate and validate existing research assets: the Corporate Risk Taxonomy and Prompt Engineering experiments. Convert these into production-ready, versioned, machine-readable formats that the extraction pipeline will consume.
+Dependencies
+Phase A complete (project structure, config management, database ready for taxonomy storage)
+TODO LIST
+-   Locate and audit existing Corporate Risk Taxonomy assets
+- Find taxonomy research files (CSV, JSON, YAML, or research docs)
+- Inventory: framework research, risk normalization, overlap analysis, hierarchical taxonomy, category definitions, classification rules
+- Document gaps vs. PRD requirements (must cover: governance, cyber, climate, regulatory, supply chain, AI regulation, ESG, litigation, auditor concern, financial stability)
+- Validate hierarchy depth (L1 category → L2 subcategory → L3 specific risk)
+-   Design machine-readable taxonomy schema
+- Create Pydantic models: TaxonomyCategory, TaxonomySubcategory, TaxonomyRisk, TaxonomyVersion
+- Fields: id, code, name, description, parent_id, level, keywords[], regulatory_refs[], severity_default, confidence_threshold, version, created_at, updated_at
+- Support multi-label classification (single risk can map to multiple categories)
+- Define classification rules: keyword matching, regex patterns, LLM prompt templates per category
+-   Build taxonomy loading and versioning system
+- app/services/taxonomy/loader.py — load from JSON/YAML files
+- app/services/taxonomy/registry.py — in-memory registry with version switching
+- app/services/taxonomy/validator.py — validate taxonomy integrity (no cycles, all parents exist, unique codes)
+- Database migration for taxonomy_versions, taxonomy_categories, taxonomy_risks tables
+- CLI command: python -m app.cli taxonomy load --file path/to/taxonomy.yaml --version v1.0
+- CLI command: python -m app.cli taxonomy validate --version v1.0
+-   Locate and audit existing Prompt Engineering assets
+- Find prompt experiments: baseline, domain expert, few-shot, structured reasoning
+- Document prompt templates, model versions, temperature settings, output schemas
+- Extract few-shot examples for each risk category
+- Identify best-performing prompt patterns per task (extraction, classification, severity, summary, evolution)
+-   Define final structured output schemas (Pydantic models)
+- ExtractedRisk — core risk item with all fields from PRD data model + evidence
+- RiskEvidence — source_page, source_paragraph, char_start, char_end, quoted_text, confidence
+- RiskClassification — taxonomy_id, category_path, confidence, method (exact/semantic/inferred)
+- SeverityScore — value (1-5), label, rationale, financial_impact_indicator
+- ConfidenceScore — overall, extraction_confidence, classification_confidence, evidence_confidence
+- RiskEvolutionEntry — prev_risk_id, curr_risk_id, change_type, similarity_score, ai_summary
+- ExecutiveSummary — narrative, key_risks[], risk_trends[], recommendations[], confidence
+- FinancialSnapshot — all fields from PRD data model
+- NewsItem — title, source, url, published_at, sentiment, relevance_score, correlated_risks[]
+-   Create prompt template registry
+- app/prompts/templates/ directory with Jinja2 templates
+- risk_extraction.j2 — system + user prompt for risk extraction
+- risk_classification.j2 — taxonomy-aware classification
+- severity_scoring.j2 — severity with financial context
+- evidence_grounding.j2 — extract exact evidence spans
+- evolution_matching.j2 — semantic risk matching across years
+- evolution_summary.j2 — AI-generated evolution narrative
+- executive_summary.j2 — executive dashboard narrative
+- financial_interpretation.j2 — risk vs financial health correlation
+- news_correlation.j2 — news-to-risk linking
+- report_generation.j2 — executive report sections
+- app/prompts/registry.py — versioned prompt loading, variable validation
+-   Build few-shot example database
+- Curate 20-30 high-quality examples per risk category
+- Store in data/fewshots/ as JSONL: {input_text, expected_output, category}
+- Create few-shot selector: semantic similarity to input chunk → top-k examples
+Deliverables
+- Validated, versioned taxonomy loaded in database (v1.0)
+- Taxonomy loader/validator CLI tools working
+- Complete Pydantic schema definitions in app/schemas/risk.py
+- Prompt template registry with 10+ versioned templates
+- Few-shot example database (200+ examples across categories)
+- Documentation: docs/taxonomy.md, docs/prompts.md
+Definition of Done
+- Taxonomy v1.0 loads without validation errors
+- All Pydantic models pass validation with sample data
+- Prompt templates render correctly with sample variables
+- Few-shot selector returns relevant examples for test chunks
+- Unit tests for taxonomy loader, validator, registry
+- Unit tests for prompt rendering and variable validation
+Technical Risks
+- Taxonomy may be incomplete for Indian regulatory context (SEBI, NSE/BSE specific risks)
+- Prompt templates optimized for one LLM may not transfer to Claude API — need validation
+- Few-shot examples must be diverse enough to cover filing language variations
+- Versioning strategy must support backward compatibility for already-processed reports
+PHASE C — DOCUMENT INTELLIGENCE RESEARCH
+Objective
+Conduct systematic research on annual report document structures to inform the parsing, chunking, and extraction pipeline. This is a time-boxed research phase (3-4 days) to de-risk the document processing pipeline.
+Dependencies
+Phase A complete (environment ready for experiments). Phase B taxonomy schemas defined (for evaluation).
+TODO LIST
+-   Collect representative annual report corpus
+- Download 20-30 annual reports (PDF) across sectors: banking, IT, manufacturing, pharma, energy, conglomerates
+- Include: Indian listed companies (10-K equivalent), US 10-K/20-F, UK annual reports
+- Mix of: native PDFs, scanned/OCR'd PDFs, multi-column layouts, complex tables
+- Include multi-year sets for same company (3+ years each for 5 companies)
+- Store in data/raw_reports/ with metadata CSV: company, year, source_url, page_count, is_scanned
+-   Analyze document structures
+- Write analysis scripts in research/document_analysis/
+- Extract: TOC structure, section headers, risk section locations (Item 1A, Risk Factors, Principal Risks)
+- Catalog: page dimensions, font usage, column detection, table frequency, header/footer patterns
+- Identify: risk section start/end markers across jurisdictions
+- Document: common noise (page numbers, watermarks, repeated headers, TOC entries)
+-   Native PDF extraction experiments
+- Test PyMuPDF (fitz): text extraction, layout preservation, block detection
+- Test pdfplumber: table extraction, text with coordinates
+- Test pdfminer.six: detailed layout analysis
+- Compare: extraction accuracy, speed, memory, table handling
+- Benchmark on 10 representative reports
+-   Layout extraction experiments
+- Use PyMuPDF get_text("dict") for block/line/span hierarchy
+- Detect: headers (font size, bold, position), body text, footnotes, table captions
+- Build layout-aware text reconstruction (reading order for multi-column)
+- Handle: rotated pages, folded pages (common in annual reports)
+-   OCR fallback experiments
+- Test Tesseract 5.x with --psm 6 (uniform block) and --psm 4 (single column)
+- Test Tesseract + layout analysis (hOCR output)
+- Test commercial OCR (Azure Document Intelligence, AWS Textract) if budget allows
+- Define OCR trigger: < 500 chars/page OR > 30% non-text pages OR explicit scanned flag
+- Measure: OCR accuracy on scanned Indian annual reports (Devanagari + English)
+-   Table handling research
+- Identify financial statement tables (balance sheet, P&L, cash flow)
+- Identify risk-related tables (risk matrix, risk heatmap, KRI tables)
+- Test: pdfplumber table extraction → pandas DataFrame → markdown/JSON
+- Handle: merged cells, multi-row headers, continuing tables across pages
+- Decide: extract tables as structured data OR convert to markdown for LLM consumption
+-   Multi-column document handling
+- Detect column count per page (PyMuPDF block analysis)
+- Reconstruct reading order: left column top-to-bottom, then right column
+- Handle: uneven columns, pull quotes, sidebars interrupting flow
+- Validate on 2-column and 3-column report layouts
+-   Header/footer removal
+- Detect repeating text patterns across pages (page numbers, company name, report title)
+- Remove: page numbers, running headers/footers, confidentiality notices
+- Preserve: section headers that appear on first page of section only
+- Test on 10+ reports with varying header/footer styles
+-   Page-level metadata extraction
+- Extract: page number, section context, is_risk_section, is_financial_statement, is_table_heavy
+- Build page classifier: risk_section vs. other (using heading detection + keyword density)
+- Store page metadata for chunk-level provenance
+-   Extraction quality evaluation framework
+- Define ground truth: manually annotate 50 pages across 5 reports
+- Metrics: text completeness (vs. manual), reading order correctness, table extraction F1, header detection accuracy
+- Create evaluation script: research/evaluate_extraction.py
+- Produce extraction quality report with recommendations
+Deliverables
+- Document analysis report: research/reports/document_structure_analysis.md
+- Extraction benchmark results: research/reports/extraction_benchmark.csv
+- OCR quality report: research/reports/ocr_evaluation.md
+- Recommended extraction pipeline configuration (parser choice, OCR triggers, table handling)
+- Page classifier model/heuristics for risk section detection
+- Annotated evaluation dataset (50 pages) for regression testing
+Definition of Done
+- 20+ annual reports collected and cataloged
+- Extraction benchmark completed with clear winner (PyMuPDF recommended)
+- OCR fallback strategy defined with confidence thresholds
+- Table handling approach decided (markdown for LLM + structured for financials)
+- Multi-column reading order algorithm validated
+- Header/footer removal ruleset tested on 10 reports
+- Risk section page classifier achieves >90% precision/recall on eval set
+- Research findings documented and reviewed by team
+Technical Risks
+- Scanned Indian annual reports may have poor OCR quality for Hindi/Marathi/Gujarati text
+- Complex nested tables in financial statements may not extract cleanly
+- Multi-column detection fails on pages with mixed layouts (single column header + two column body)
+- Time-boxing: this phase must not exceed 4 days — prioritize findings that unblock Phase D
+PHASE D — DOCUMENT PROCESSING PIPELINE
+Objective
+Build the production document ingestion and processing pipeline: file upload, PDF parsing, OCR routing, text cleaning, metadata extraction, section detection, risk section identification, and document normalization. This pipeline feeds clean, structured chunks to the AI engine.
+Dependencies
+Phase A (infrastructure), Phase B (schemas), Phase C (extraction strategy validated)
+TODO LIST
+-   File ingestion API and storage
+- POST /api/v1/reports/upload — multipart upload, streaming to disk/S3
+- File validation: MIME type (PDF), max size (100MB), filename sanitization
+- Storage abstraction: local filesystem (dev) / S3-compatible (prod)
+- Generate unique report_id, store original filename, compute SHA256
+- Create Report record with status UPLOADED
+- Emit ReportUploaded event for async processing
+-   PDF parsing service
+- app/services/parsing/pdf_parser.py — PyMuPDF-based extraction
+- Extract: full text, blocks with bbox, fonts, images, tables (pdfplumber)
+- Output: ParsedDocument — pages[], tables[], metadata{}, extraction_stats{}
+- Handle: password-protected PDFs (skip with error), corrupted PDFs
+- Parallel page processing for speed
+-   OCR routing and fallback
+- app/services/parsing/ocr.py — Tesseract wrapper with config
+- Heuristic: trigger OCR if avg chars/page < 500 OR text extraction fails
+- OCR each page as image (render via PyMuPDF at 300 DPI)
+- Merge OCR text with native extraction (prefer native where available)
+- Store OCR confidence per page
+-   Text cleaning and normalization
+- app/services/parsing/cleaner.py
+- Remove: control chars, zero-width spaces, excessive whitespace
+- Normalize: unicode (NFC), ligatures (ﬁ → fi), smart quotes
+- Fix: hyphenated line breaks (re-join), column artifacts
+- Preserve: paragraph boundaries, bullet points, numbered lists
+-   Metadata extraction
+- app/services/parsing/metadata.py
+- Extract from PDF metadata: title, author, subject, creator, creation_date, mod_date
+- Extract from content: company name (first pages), fiscal year (regex + context), sector
+- Detect: document type (annual report, 10-K, 20-F, quarterly)
+- Confidence score for each extracted metadata field
+-   Section detection and risk section identification
+- app/services/parsing/section_detector.py
+- Build heading hierarchy from font size/bold/position analysis
+- Keywords for risk sections: "Risk Factors", "Principal Risks", "Item 1A", "Risk Management", "Enterprise Risk", "Key Risks"
+- Multi-language support: English primary, detect Hindi/other in Indian filings
+- Output: DocumentSections — sections[] with type, level, page_range, text
+-   Risk section isolation
+- Extract only risk-relevant sections (reduce token usage for LLM)
+- Include: risk factor sections, risk management discussion, audit committee report
+- Exclude: financial statements, notes to accounts, director bios, corporate governance (unless risk-related)
+- Fallback: if no risk section found, process full document with warning
+-   Document normalization and persistence
+- app/services/parsing/normalizer.py
+- Create normalized Document object: pages[], chunks[] (placeholder), sections[], metadata{}
+- Persist to database: ReportVersion (immutable parsed result), ReportPage, ReportSection
+- Store raw parsed JSON in object storage for reprocessing
+- Update Report status: PARSED → CHUNKED → EMBEDDED → EXTRACTED → COMPLETED / FAILED
+-   Incremental reprocessing support
+- Hash-based change detection: content hash per page/section
+- On re-upload same company/year: diff against existing ReportVersion
+- Only re-chunk/embed/extract changed sections
+- Preserve unchanged risk extractions and evolution links
+-   Processing job orchestration
+- Celery/Redis or FastAPI background tasks for async pipeline
+- Job status tracking: ProcessingJob {id, report_id, stage, progress, error, started_at, completed_at}
+- Stages: PARSE → CLEAN → SECTION_DETECT → CHUNK → EMBED → EXTRACT → EVOLUTION → COMPLETE
+- Retry logic with exponential backoff for transient failures
+- Dead letter queue for permanent failures
+-   Processing status API
+- GET /api/v1/reports/{report_id}/status — real-time progress via SSE or polling
+- GET /api/v1/reports/{report_id}/processing-log — detailed stage logs
+- Webhook callback on completion (optional)
+Deliverables
+- Complete document processing pipeline (upload → parsed → normalized)
+- API endpoints for upload and status tracking
+- Database persistence for all parsing intermediates
+- Incremental reprocessing capability
+- Background job processing with monitoring
+Definition of Done
+- Upload 100-page PDF → status COMPLETED in < 30s (per NFR)
+- Scanned PDF correctly routes to OCR and produces readable text
+- Risk sections correctly identified in 90%+ of test reports
+- Incremental reprocess: change 1 page → only that page reprocessed
+- All parsing intermediates queryable via API
+- Failed jobs visible with error details, retryable
+- Unit tests for each parsing service (>80% coverage)
+- Integration test: upload → parse → status COMPLETE
+Technical Risks
+- Large PDFs (300+ pages) may exceed memory — use streaming/page-by-page processing
+- PyMuPDF rendering for OCR at 300 DPI is CPU intensive — consider lower DPI (200) for speed
+- Section detection heuristics may fail on unconventional report structures — need fallback to full-doc processing
+- Celery adds operational complexity — evaluate FastAPI BackgroundTasks + Redis queue for simpler MVP
+PHASE E — CHUNKING STRATEGY
+Objective
+Design, implement, and evaluate multiple chunking strategies to optimize for risk extraction quality. The chunking strategy directly determines extraction accuracy, context preservation, and token efficiency.
+Dependencies
+Phase D complete (normalized documents with sections, pages, metadata available)
+TODO LIST
+-   Define chunk metadata schema
+- Chunk model: id, report_version_id, page_start, page_end, section_path, char_start, char_end, token_count, chunk_type (risk_section, financial, narrative, table), metadata{}
+-   Implement fixed-size chunking baseline
+- app/services/chunking/fixed.py — sliding window (chunk_size=1000, overlap=200 tokens)
+- Tokenizer: tiktoken (cl100k_base for Claude/GPT compatibility)
+- Respect page boundaries where possible
+-   Implement recursive chunking
+- app/services/chunking/recursive.py — split by headers → paragraphs → sentences → tokens
+- Separators: \n## , \n### , \n\n, \n, . ,  , ``
+- Preserve heading hierarchy in chunk metadata
+-   Implement section-aware chunking
+- app/services/chunking/section_aware.py — one chunk per logical section/subsection
+- Merge small sections (< 200 tokens) with neighbors
+- Split large sections (> 2000 tokens) recursively
+- Tag chunks with full section path (e.g., "Risk Factors → Cybersecurity → Data Privacy")
+-   Implement semantic chunking
+- app/services/chunking/semantic.py — use embedding similarity to find semantic boundaries
+- Compute embeddings for sentences, cluster by similarity threshold (0.75)
+- Merge clusters into chunks respecting token limits
+- Requires embedding model — use fast local model (e.g., sentence-transformers/all-MiniLM-L6-v2)
+-   Implement risk-aware chunking (hybrid)
+- app/services/chunking/risk_aware.py — prioritize risk section boundaries
+- Risk sections: section-aware chunking with risk-specific merge/split rules
+- Non-risk sections: larger chunks or summary-only
+- Preserve: risk definitions, risk examples, mitigation descriptions as atomic units
+-   Chunk evaluation framework
+- research/chunking/evaluate.py
+- Metrics: chunk purity (single topic), context completeness (risk statement + evidence in same chunk), token efficiency, boundary coherence
+- Ground truth: manually labeled chunk boundaries on 20 risk sections
+- Test: risk extraction accuracy per chunking strategy (using Phase G pipeline)
+-   Run chunking strategy comparison
+- Process 10 reports with each strategy
+- Feed chunks to risk extraction (Phase G) — measure extraction F1, recall@k
+- Measure: avg chunks/report, avg tokens/chunk, LLM cost estimate
+- Document trade-offs in research/reports/chunking_evaluation.md
+-   Select and finalize chunking strategy
+- Decision matrix: extraction quality vs. cost vs. latency
+- Implement factory: ChunkingStrategyFactory.get_strategy(config)
+- Default: risk-aware chunking for risk sections, section-aware for others
+- Configurable per workspace/document type
+-   Integrate chunking into processing pipeline
+- Stage CHUNK in processing job
+- Persist chunks to database with embeddings-ready text
+- Update Report status to CHUNKED
+Deliverables
+- 5 chunking implementations with common interface
+- Evaluation report with quantitative comparison
+- Selected production chunking strategy
+- Chunk persistence in database
+- Chunking integrated in processing pipeline
+Definition of Done
+- All 5 chunking strategies produce valid chunks for test documents
+- Evaluation completed on 10 reports with ground truth
+- Risk-aware chunking achieves highest extraction F1 (target >0.85)
+- Chunking adds < 5s to processing time for 100-page report
+- Chunks stored in DB with all metadata fields populated
+- Factory pattern allows runtime strategy selection
+Technical Risks
+- Semantic chunking requires embeddings — circular dependency if embeddings need chunks. Solution: use fast local encoder for chunking, production embeddings for retrieval.
+- Risk-aware chunking depends on section detection accuracy — errors propagate.
+- Token counting must match LLM tokenizer exactly — use tiktoken consistently.
+- Chunk metadata must support evolution matching (need page/paragraph references).
+PHASE F — EMBEDDINGS AND RETRIEVAL
+Objective
+Build the embedding generation, vector storage, and retrieval system enabling semantic search, year-over-year risk matching, and RAG for explainability.
+Dependencies
+Phase D (chunks persisted), Phase E (final chunking strategy), Phase B (taxonomy for evaluation)
+TODO LIST
+-   Embedding model evaluation
+- Test models: voyage-3, text-embedding-3-large, bge-large-en-v1.5, e5-large-v2
+- Benchmark on risk text: semantic similarity of same risk across years, dissimilar risk separation
+- Metrics: retrieval recall@10, nDCG, clustering quality (silhouette)
+- Cost/latency analysis per 1M tokens
+- Select primary (Voyage/OpenAI) and fallback (local BGE) models
+-   Vector database setup
+- Option A: pgvector (PostgreSQL extension) — unified storage, ACID, simpler ops
+- Option B: Pinecone — managed, better scale, separate system
+- Decision: pgvector for MVP (single DB, transactional consistency with metadata)
+- docker-compose.yml: add pgvector/pgvector:pg16 image
+- Enable extension: CREATE EXTENSION vector;
+- Create indexes: CREATE INDEX ON chunks USING hnsw (embedding vector_cosine_ops);
+-   Embedding generation service
+- app/services/embeddings/generator.py
+- Batch embedding: process chunks in batches of 100
+- Async with rate limiting (respect API limits)
+- Cache embeddings by content hash (avoid re-embedding unchanged chunks)
+- Store: ChunkEmbedding {chunk_id, model, embedding, created_at}
+- Progress tracking for long documents
+-   Dense retrieval service
+- app/services/retrieval/dense.py
+- Query embedding → vector similarity search (cosine)
+- Filters: company_id, report_id, year, section_type, taxonomy_category
+- Return: top-k chunks with scores, metadata
+-   Sparse retrieval (BM25)
+- app/services/retrieval/sparse.py
+- Use PostgreSQL tsvector/tsquery for full-text search
+- Create GIN index on chunk text
+- Hybrid: combine with dense for keyword-heavy queries (risk codes, specific terms)
+-   Hybrid retrieval with Reciprocal Rank Fusion (RRF)
+- app/services/retrieval/hybrid.py
+- Run dense and sparse in parallel
+- RRF: score = 1/(k + rank_dense) + 1/(k + rank_sparse) where k=60
+- Configurable weights per query type
+-   Cross-encoder reranking
+- app/services/retrieval/reranker.py
+- Use cross-encoder/ms-marco-MiniLM-L-6-v2 (local) or Cohere Rerank v3
+- Rerank top-50 from hybrid → top-10 final
+- Cache reranker scores for repeated queries
+-   Retrieval API endpoints
+- POST /api/v1/search/chunks — semantic search with filters
+- POST /api/v1/search/similar-risks — find similar risks across years/companies
+- GET /api/v1/search/suggest — autocomplete for risk terms
+-   Retrieval evaluation and benchmark creation
+- Build test queries: 50 risk-related queries with ground truth relevant chunks
+- Metrics: recall@5, recall@10, MRR, nDCG@10
+- Compare: dense only, sparse only, hybrid, hybrid+rerank
+- Regression test suite: tests/retrieval/test_retrieval_benchmarks.py
+-   Vector database maintenance
+- Index rebuild strategy for schema changes
+- Monitoring: index size, query latency, recall drift
+- Backup/restore procedure for vector data
+Deliverables
+- pgvector-enabled PostgreSQL with HNSW indexes
+- Embedding generation pipeline (batch, cached, async)
+- Hybrid retrieval (dense + sparse + RRF + rerank)
+- Search API endpoints
+- Evaluation benchmark with baseline metrics
+Definition of Done
+- Embed 100k chunks in < 10 minutes (batched, async)
+- Hybrid retrieval p95 latency < 200ms
+- Recall@10 > 0.9 on risk query benchmark
+- Reranking improves nDCG@10 by >10%
+- All retrieval services have unit tests
+- Integration test: full search flow with filters
+Technical Risks
+- pgvector HNSW index build time on large datasets — build incrementally
+- Embedding model API rate limits — implement token bucket rate limiter
+- Cross-encoder latency adds ~100ms — cache aggressively, make optional for high-throughput paths
+- Vector dimension mismatch if switching models — store model version with embeddings
+PHASE G — CORE RISK AI ENGINE
+Objective
+Build the core AI pipeline for risk detection, extraction, classification, severity scoring, confidence scoring, evidence grounding, and hallucination prevention. This is the heart of the platform.
+Dependencies
+Phase B (taxonomy, prompts, schemas), Phase D (parsed documents), Phase E (chunks), Phase F (retrieval for evidence)
+TODO LIST
+-   LLM provider abstraction
+- app/services/llm/provider.py — abstract base class LLMProvider
+- Implement ClaudeProvider (Anthropic SDK), OpenAIProvider (fallback)
+- Common interface: complete(), complete_structured(), count_tokens()
+- Retry with exponential backoff, circuit breaker
+- Cost tracking per call (input/output tokens, model, timestamp)
+- Request/response logging for debugging
+-   Structured output validation
+- app/services/llm/structured.py — Pydantic model → JSON schema → LLM function calling / constrained decoding
+- Validation pipeline: parse → validate → retry on failure (max 3)
+- Fallback: regex extraction if structured output fails
+- Metrics: validation pass rate, retry count
+-   Risk detection (identify risk-bearing text)
+- app/services/extraction/detector.py
+- Prompt: "Identify all sentences/paragraphs discussing material risks"
+- Input: chunk text + section context
+- Output: RiskCandidate[] — {text_span, char_start, char_end, page, section, risk_likelihood}
+- Filter: likelihood > 0.5 threshold
+-   Risk extraction (structured risk items)
+- app/services/extraction/extractor.py
+- Prompt: detailed extraction template (category, severity, summary, entities, evidence)
+- Input: risk candidate + surrounding context (2 chunks before/after)
+- Output: ExtractedRisk (validated against schema)
+- Few-shot examples injected per category
+- Parallel extraction per candidate (batch size 5)
+-   Taxonomy classification
+- app/services/classification/classifier.py
+- Multi-label: single risk → multiple taxonomy categories
+- Methods: (1) exact keyword match, (2) semantic similarity to taxonomy definitions, (3) LLM classification
+- Weighted confidence: exact=0.9, semantic=0.7, inferred=0.5
+- Output: RiskClassification[] per risk
+-   Severity scoring
+- app/services/scoring/severity.py
+- Factors: regulatory language intensity, financial impact keywords, management tone, quantitative metrics mentioned
+- Scale: 1 (Low) → 5 (Critical) with labels
+- Calibration: benchmark against known severe risks (going concern, material weakness, regulatory action)
+- Output: SeverityScore with rationale
+-   Confidence scoring (composite)
+- app/services/scoring/confidence.py
+- Components: extraction_confidence, classification_confidence, evidence_confidence, severity_confidence
+- Weighted aggregate: 0.3/0.3/0.2/0.2
+- Calibration: map to "High/Medium/Low" UI buckets
+- Flag: confidence < 0.6 → "Requires Review"
+-   Evidence grounding and citation mapping
+- app/services/evidence/grounding.py
+- For each extracted risk: locate exact source span in original text
+- Strategy: LLM returns char_start/char_end → verify match → fuzzy match if off
+- Store: RiskEvidence — risk_id, chunk_id, page, paragraph_idx, quoted_text, char_range, match_method
+- Multi-evidence: support multiple paragraphs per risk
+-   Hallucination prevention
+- Constraint: LLM must quote evidence verbatim from provided text
+- Post-extraction verification: check quoted text exists in source chunk
+- Penalty: if quote not found → reduce confidence, flag for review
+- "Unknown" category for unclassifiable risks (don't force classification)
+-   Duplicate risk handling
+- app/services/extraction/deduplicator.py
+- Within-document: cluster risks by semantic similarity (threshold 0.85)
+- Merge: keep highest confidence, combine evidence, union categories
+- Cross-chunk: deduplicate at report level after all chunks processed
+-   Risk extraction pipeline orchestration
+- app/services/extraction/pipeline.py
+- Stages: detect → extract → classify → score → ground → deduplicate
+- Progress callbacks for job tracking
+- Checkpointing: save intermediate results per stage
+- Batch processing: process chunks in parallel (max 10 concurrent)
+-   Extraction API
+- POST /api/v1/reports/{report_id}/extract — trigger extraction
+- GET /api/v1/reports/{report_id}/risks — paginated risk list with filters
+- GET /api/v1/risks/{risk_id} — full risk detail with evidence
+- GET /api/v1/risks/{risk_id}/evidence — evidence viewer data
+Deliverables
+- Complete risk extraction pipeline (detect → extract → classify → score → ground → deduplicate)
+- LLM provider abstraction with cost tracking
+- Structured output validation with retry
+- Evidence grounding with exact source mapping
+- API endpoints for extraction and risk querying
+- Hallucination prevention measures
+Definition of Done
+- Process 100-page report → extract risks in < 60s (parallel chunks)
+- Extraction precision > 0.85, recall > 0.80 on evaluation set
+- Classification accuracy > 0.85 on taxonomy categories
+- Evidence grounding: 95%+ quotes verified in source
+- Confidence scores correlate with human judgment (Spearman > 0.7)
+- Duplicate detection merges >90% of true duplicates
+- All pipeline stages have unit tests with mocked LLM
+- Integration test: full extraction on 3 test reports
+Technical Risks
+- LLM latency variance — use async batching, set reasonable timeouts (60s)
+- Structured output failures — robust fallback to regex parsing
+- Token limits on large chunks — chunking strategy must respect context windows
+- Cost control — implement per-workspace daily/monthly LLM spend limits
+- Prompt drift — version prompts, track performance per version
+PHASE H — RISK EVOLUTION ENGINE
+Objective
+Build the year-over-year risk evolution engine: multi-year ingestion, risk normalization, semantic risk matching, change detection (new/removed/modified/severity), emerging risk detection, and AI-generated evolution summaries.
+Dependencies
+Phase G (risk extraction working), Phase F (retrieval for matching), Phase J (data model for evolution records)
+TODO LIST
+-   Multi-year report ingestion coordination
+- app/services/evolution/ingestion.py
+- Ensure reports for same company sorted by fiscal_year
+- Trigger evolution analysis when ≥2 years exist for a company
+- Support: compare latest vs. previous, or any two years
+-   Risk normalization for matching
+- app/services/evolution/normalizer.py
+- Normalize: lowercase, remove stopwords, stem/lemmatize, expand acronyms
+- Create normalized text field for each risk: normalized_summary
+- Preserve original for display
+-   Semantic risk matching
+- app/services/evolution/matcher.py
+- For each risk in current year: find top-k matches in prior year (vector similarity)
+- Threshold: similarity > 0.82 → same risk; 0.65-0.82 → potential match (review); < 0.65 → no match
+- Cross-encoder rerank top-10 candidates for precision
+- Handle: one-to-many (split risk), many-to-one (merged risk)
+-   Change type classification
+- app/services/evolution/classifier.py
+- Rules:
+- No match in prior year → NEW
+- No match in current year → REMOVED
+- Match found, severity changed → SEVERITY_UP / SEVERITY_DOWN
+- Match found, text similarity 0.65-0.90 → MODIFIED
+- Match found, text similarity > 0.90 → UNCHANGED
+- LLM verification for borderline cases (similarity 0.65-0.82)
+-   New risk detection
+- Flag risks with no prior match
+- Enrich: is this truly new or reworded? (LLM check)
+- Categorize: emerging theme vs. one-off disclosure
+- Priority score: severity × confidence × novelty
+-   Removed risk detection
+- Flag prior risks with no current match
+- Verify: risk genuinely resolved vs. no longer disclosed
+- Check: regulatory changes, business model changes
+-   Modified risk detection
+- For matched risks with text changes: generate diff
+- Classify modification type: scope expanded/reduced, language softened/hardened, quantitative change
+- Extract: added sentences, removed sentences, changed metrics
+-   Severity change detection
+- Compare severity scores year-over-year
+- Threshold: ±1 level = notable; ±2 = significant
+- Correlate with financial metric changes (Phase I)
+-   Emerging risk detection
+- app/services/evolution/emerging.py
+- Track: new risk categories appearing across multiple companies in sector
+- Time window: 3-year trend
+- Signal: frequency ↑, severity ↑, peer adoption ↑
+- Output: EmergingRiskTheme — theme, companies[], trajectory, confidence
+-   AI evolution summary generation
+- app/services/evolution/summarizer.py
+- Prompt: generate analyst-grade narrative of risk evolution
+- Input: all EvolutionEntries for company year-pair
+- Output: executive summary, key changes, implications, watch items
+-   Human-review workflow for uncertain matches
+- app/services/evolution/review_queue.py
+- Queue items: similarity 0.65-0.82, one-to-many, many-to-one
+- UI: side-by-side risk comparison, accept/reject/modify match
+- Store reviewer decision → retrain threshold calibration
+-   Evolution API
+- POST /api/v1/companies/{company_id}/evolution — trigger analysis
+- GET /api/v1/companies/{company_id}/evolution/{year_from}/{year_to} — results
+- GET /api/v1/evolution/{evolution_id}/review — review queue items
+- POST /api/v1/evolution/{evolution_id}/review/{item_id} — submit decision
+Deliverables
+- Semantic risk matching engine with configurable thresholds
+- Change detection: NEW, REMOVED, MODIFIED, SEVERITY_UP, SEVERITY_DOWN, UNCHANGED
+- Emerging risk theme detection across company universe
+- AI-generated evolution summaries
+- Human review queue for uncertain matches
+- Evolution API endpoints
+Definition of Done
+- Match risks across 3 years for 5 test companies
+- Precision > 0.90, Recall > 0.85 on labeled evolution pairs
+- New/removed detection: < 10% false positives
+- Severity change detection matches financial correlation (Phase I)
+- Evolution summary quality rated > 4/5 by domain expert
+- Review queue processes 50 items in < 10 minutes
+- All evolution records persisted with full provenance
+Technical Risks
+- Semantic matching threshold tuning is critical — too high misses real changes, too low creates noise
+- One-to-many/many-to-one splits/merges are complex — start with simple 1:1, enhance later
+- LLM verification for borderline cases adds latency — batch and cache
+- Evolution depends on consistent extraction quality across years — monitor extraction drift
+PHASE I — INTELLIGENCE MODULES
+Objective
+Build all intelligence features: Company Risk Profile, Risk Explorer, Cross-company Comparison, Industry Intelligence, Financial Health Intelligence, Market/News Intelligence, Multi-Factor Risk Scanner, Custom Risk Filters, Custom Taxonomy Rules, Executive Report Generator.
+Dependencies
+Phase G (core extraction), Phase H (evolution), Phase F (retrieval), Phase J (data layer for financial/news data)
+TODO LIST
+I.1 Company Risk Profile
+- app/services/intelligence/company_profile.py
+- Aggregate: risk count by category, severity distribution, evolution summary, top risks
+- Risk heatmap data: category × severity matrix
+- Risk timeline: yearly risk count, severity trend, new/removed counts
+- AI executive summary (from Phase H)
+- Key metrics: risk velocity (new risks/year), risk persistence rate
+- API: GET /api/v1/companies/{id}/profile
+I.2 Risk Explorer (Semantic Screening)
+- app/services/intelligence/risk_explorer.py
+- Pre-defined scans: governance, cyber, climate, regulatory, supply chain, AI regulation, ESG, litigation, auditor concern, financial stability
+- Scan implementation: retrieve risks matching category + severity + keywords across all companies
+- Results: ranked list with company, risk summary, severity, confidence, evidence link
+- Custom filters: taxonomy category, severity range, confidence range, year range, sector, market cap
+- Saved scans: persist filter config, schedule re-run
+- API: POST /api/v1/explorer/scan, GET /api/v1/explorer/scans, GET /api/v1/explorer/scans/{id}/results
+I.3 Cross-Company Comparison
+- app/services/intelligence/comparison.py
+- Compare 2-10 companies side-by-side
+- Metrics: risk count, category distribution, severity profile, evolution velocity
+- Visual: radar chart (risk categories), grouped bar (severity), timeline overlay
+- Common risks: risks appearing in multiple selected companies
+- Divergent risks: high severity in one, absent in others
+- API: POST /api/v1/comparison/companies
+I.4 Industry Intelligence
+- app/services/intelligence/industry.py
+- Sector definition: map companies to sectors (GICS or custom)
+- Sector heatmap: category × company matrix with severity color
+- Sector risk trends: category frequency over time
+- Common risks: top 10 risks by frequency in sector
+- Emerging industry risks: from Phase H emerging detection, aggregated by sector
+- Industry benchmark score: composite of risk count, severity, velocity
+- Company ranking within sector
+- Comparative dashboard: company vs. sector average
+- API: GET /api/v1/sectors/{sector}/intelligence, GET /api/v1/companies/{id}/peer-comparison
+I.5 Financial Health Intelligence
+- app/services/intelligence/financial.py
+- Data ingestion: financial snapshots from API (SEC, Screener.in, Yahoo Finance) or manual entry
+- Metrics: revenue, profit, net_margin, roe, roce, eps, debt_equity, cash_flow, market_cap (per PRD)
+- Financial trend charts: 5-year trends for each metric
+- AI financial interpretation: narrative explaining trends
+- Risk-vs-financial correlation: e.g., "liquidity risk" ↔ debt/equity spike
+- Correlation engine: statistical (Pearson/Spearman) + LLM narrative
+- API: GET /api/v1/companies/{id}/financials, GET /api/v1/companies/{id}/risk-financial-correlation
+I.6 Market/News Intelligence
+- app/services/intelligence/market.py
+- News ingestion: NewsAPI, GNews, RSS feeds (SEBI, SEC, NSE, BSE, Moneycontrol, Economic Times)
+- Regulatory filing feed: SEC EDGAR, SEBI filings, NSE/BSE announcements
+- News processing: entity extraction (company names), sentiment (FinBERT), relevance scoring
+- Event timeline: chronological feed with risk correlation
+- AI news correlation: link news events to extracted risks (semantic similarity)
+- Breaking risk alerts: high-severity news for watched companies
+- Caching: store news 30 days, refresh every 4 hours
+- API: GET /api/v1/companies/{id}/news, GET /api/v1/companies/{id}/events, GET /api/v1/alerts
+I.7 Multi-Factor Risk Scanner
+- app/services/intelligence/multi_factor_scanner.py
+- Factor definitions: each factor = (risk_category, severity_threshold, direction, company_metric_condition)
+- Example factors: Governance_Risk↑, Cyber_Risk↑, Debt_Equity↑, Revenue↓, Negative_News↑, Auditor_Language_Changed, FII_Holding↓, Climate_Risk↑
+- Query builder: AND/OR logic across factors
+- Saved scans: name, filter JSON, logic, schedule
+- Execution: evaluate all companies, rank by matched factor count + severity
+- Results: ranked company list with matched factors, evidence links
+- API: POST /api/v1/scanner/run, GET /api/v1/scanner/scans, POST /api/v1/scanner/scans
+I.8 Custom Risk Filters
+- app/services/intelligence/custom_filters.py
+- Filter builder UI → JSON filter spec
+- Filter types: taxonomy category, severity, confidence, year, sector, market cap, financial metric threshold, keyword
+- Composition: AND/OR/NOT groups, nested
+- Validation: filter spec schema, dry-run preview
+- Integration: Risk Explorer, Scanner, Comparison all use same filter spec
+I.9 Custom Taxonomy Rules
+- app/services/taxonomy/custom_rules.py
+- Workspace-level taxonomy overrides
+- Rule types: add category, merge categories, rename, adjust severity default, add keywords
+- Version control: each workspace has taxonomy version
+- Migration: re-classify existing risks on rule change (async job)
+- API: POST /api/v1/workspaces/{id}/taxonomy/rules, PUT /api/v1/workspaces/{id}/taxonomy/rules/{rule_id}
+I.10 Executive Report Generator
+- app/services/reporting/generator.py
+- Report sections: executive summary, risk evolution, financial analysis, news analysis, evidence appendix, peer comparison, charts, recommendations, company snapshot
+- Template engine: Jinja2 HTML → WeasyPrint/Playwright → PDF
+- Chart rendering: Recharts/D3 → SVG → embed in PDF
+- Evidence appendix: all risks with source citations
+- Customization: select sections, date range, companies
+- Async generation: job queue, progress, download link on completion
+- API: POST /api/v1/reports/generate, GET /api/v1/reports/{id}/status, GET /api/v1/reports/{id}/download
+Deliverables
+- 10 intelligence service modules
+- API endpoints for all intelligence features
+- Background jobs for scan execution, report generation
+- Integration with financial/news data sources
+Definition of Done
+- Risk Explorer runs 10 predefined scans across 100+ companies in < 10s
+- Cross-company comparison renders for 5 companies in < 3s
+- Industry heatmap loads for sector with 50 companies in < 2s
+- Financial correlation finds known risk-financial links in test data
+- News correlation links >70% of high-severity risks to relevant news
+- Multi-factor scanner evaluates 100 companies against 8 factors in < 15s
+- Executive report generates 20-page PDF in < 30s
+- Custom taxonomy rules re-classify 1000 risks in < 60s
+- All intelligence APIs have integration tests
+Technical Risks
+- Financial data API reliability — implement graceful degradation, caching, multiple sources
+- News API rate limits — aggressive caching, respect robots.txt
+- Report generation PDF rendering — WeasyPrint has CSS limitations; test complex layouts
+- Multi-factor scanner combinatorial explosion — pre-compute factor matrices, incremental updates
+- Custom taxonomy re-classification at scale — background job with progress, idempotent
+PHASE J — DATA LAYER
+Objective
+Design and implement the complete database schema (PostgreSQL + pgvector) for all entities: companies, reports, chunks, risks, taxonomy, evolution, financials, news, workspaces, scans, annotations.
+Dependencies
+Phase A (database infrastructure), Phase B (taxonomy schema), Phase D-G (entity requirements)
+TODO LIST
+-   PostgreSQL schema design and migrations
+- alembic/versions/001_initial_schema.py — all tables
+- workspaces: id, name, slug, settings{}, created_at, updated_at
+- workspace_members: id, workspace_id, user_id, role (owner/admin/analyst/viewer), joined_at
+- companies: id, workspace_id, name, ticker, sector, industry, market_cap, listed_exchange, country, metadata{}, created_at, updated_at
+- reports: id, workspace_id, company_id, fiscal_year, fiscal_period (FY/Q1/Q2/Q3), source_type (annual_10k/20f/quarterly/other), source_url, file_path, file_hash, page_count, processing_status, processing_started_at, processing_completed_at, error_message, report_version_id, created_at, updated_at
+- report_versions: id, report_id, version, parsed_data{}, extraction_status, chunk_count, created_at
+- report_pages: id, report_version_id, page_number, text, char_count, token_count, is_risk_section, section_path, metadata{}, embedding_id
+- report_sections: id, report_version_id, section_title, section_path, level, page_start, page_end, char_start, char_end, is_risk_section
+- chunks: id, report_version_id, page_start, page_end, section_path, text, token_count, char_start, char_end, chunk_type, metadata{}, created_at
+- chunk_embeddings: id, chunk_id, model, embedding (vector), created_at
+- extracted_risks: id, workspace_id, report_version_id, chunk_id, category_id, subcategory_id, severity (1-5), confidence_score (0-1), summary, description, entities{}, source_page, source_paragraph, char_start, char_end, quoted_text, extraction_method, llm_model, llm_tokens, created_at, updated_at
+- risk_evidence: id, risk_id, chunk_id, page, paragraph_idx, quoted_text, char_start, char_end, match_method (exact/fuzzy/llm), verified
+- risk_classifications: id, risk_id, taxonomy_version, category_id, confidence, method (exact/semantic/inferred), created_at
+- risk_evolution: id, workspace_id, company_id, year_from, year_to, risk_id_from, risk_id_to, change_type (NEW/REMOVED/MODIFIED/SEVERITY_UP/SEVERITY_DOWN/UNCHANGED), similarity_score, ai_summary, reviewer_id, review_status, reviewed_at, created_at
+- emerging_risk_themes: id, workspace_id, theme_name, description, category_id, companies[], trajectory_data{}, confidence, detected_at, created_at
+- financial_snapshots: id, company_id, fiscal_year, revenue, profit, net_margin, roe, roce, eps, debt_equity, cash_flow, market_cap, source, fetched_at, created_at
+- news_items: id, workspace_id, company_id, title, url, source, published_at, sentiment_score, relevance_score, summary, entities{}, correlated_risk_ids[], created_at
+- saved_scans: id, workspace_id, user_id, name, description, filter_spec{}, logic (AND/OR), is_scheduled, schedule_cron, last_run_at, created_at, updated_at
+- scan_results: id, scan_id, company_id, matched_factors[], rank, score, created_at
+- custom_taxonomy_rules: id, workspace_id, rule_type (add/merge/rename/severity/keywords), target_category_id, config{}, priority, is_active, created_by, created_at
+- analyst_notes: id, workspace_id, user_id, entity_type (company/risk/report), entity_id, content, is_private, created_at, updated_at
+- pdf_annotations: id, workspace_id, user_id, report_version_id, page, x, y, width, height, text, color, type (highlight/note/bookmark), linked_risk_id, created_at, updated_at
+- generated_reports: id, workspace_id, user_id, company_id, report_type, config{}, file_path, status, generated_at, expires_at
+- Indexes: composite indexes for common query patterns (workspace+company+year, workspace+risk+category, etc.)
+- RLS policies for workspace isolation
+-   Vector database schema (pgvector)
+- chunk_embeddings.embedding — vector(1024) for Voyage-3 / 1536 for text-embedding-3-large
+- HNSW index: CREATE INDEX ON chunk_embeddings USING hnsw (embedding vector_cosine_ops) WITH (m=16, ef_construction=64);
+- Partition by workspace_id for isolation (if using pgvector 0.5.0+)
+- Embedding model version tracking
+-   Database utilities
+- app/db/repositories/ — repository pattern for each entity
+- app/db/queries/ — complex queries (evolution, aggregation, search)
+- Connection pooling: asyncpg pool, size tuned for workload
+- Query logging (slow queries > 100ms)
+-   Caching strategy
+- Redis for: session data, query results (dashboard aggregates), rate limiting, job status
+- Cache keys: ws:{workspace_id}:company:{id}:profile, ws:{ws}:dashboard:{company_id}
+- TTL: dashboard 5min, profile 1hr, search results 10min
+- Invalidation: on risk extraction, evolution, financial update
+-   Data seeding and fixtures
+- scripts/seed_database.py — demo companies, reports, risks
+- tests/fixtures/ — test data for unit/integration tests
+-   Backup and migration strategy
+- Nightly pg_dump to S3
+- Point-in-time recovery (PITR) via managed postgres
+- Migration rollback procedures documented
+Deliverables
+- Complete Alembic migration history
+- All tables created with indexes, constraints, RLS
+- Repository classes for all entities
+- Redis caching layer integrated
+- Seed script for demo data
+Definition of Done
+- alembic upgrade head creates all tables without errors
+- All foreign keys, unique constraints, check constraints enforced
+- RLS policies prevent cross-workspace data access
+- Vector similarity query returns results in < 50ms (100k vectors)
+- Repository classes cover CRUD + custom queries
+- Cache hit rate > 80% on dashboard endpoints
+- Seed script populates realistic demo dataset
+Technical Risks
+- pgvector HNSW index requires maintenance_work_mem tuning for large builds
+- RLS policies add query overhead — test with realistic data volumes
+- Migration order matters for interdependent tables — plan carefully
+- Vector dimension must match embedding model — store dimension in schema
+PHASE K — BACKEND/API
+Objective
+Build the complete FastAPI backend: all REST endpoints, async processing, job tracking, authentication integration, validation, error handling, and API documentation.
+Dependencies
+Phase A (FastAPI scaffold), Phase J (database), Phase D-H (services), Phase I (intelligence services)
+TODO LIST
+-   FastAPI application structure
+- app/main.py — app factory, lifespan, middleware stack
+- Middleware: CORS, request ID, logging, timing, error handling, rate limiting
+- Exception handlers: validation, authentication, authorization, not found, internal
+- Dependency injection: database session, current user, workspace, rate limiter
+-   Authentication integration
+- app/api/deps.py — get_current_user, get_current_workspace, require_role
+- Auth.js/Clerk JWT verification (JWKS caching)
+- Workspace resolution from token claims
+- API key authentication for programmatic access
+-   Company/Report Management API
+- POST /api/v1/companies — create company
+- GET /api/v1/companies — list with filters, pagination
+- GET /api/v1/companies/{id} — detail
+- PATCH /api/v1/companies/{id} — update
+- DELETE /api/v1/companies/{id} — soft delete
+- POST /api/v1/reports/upload — multipart upload (Phase D)
+- GET /api/v1/reports — list with filters
+- GET /api/v1/reports/{id} — detail with processing status
+- GET /api/v1/reports/{id}/status — SSE progress stream
+- DELETE /api/v1/reports/{id} — delete report and all derived data
+-   Risk Extraction API
+- POST /api/v1/reports/{id}/extract — trigger extraction (background job)
+- GET /api/v1/reports/{id}/risks — paginated, filterable (category, severity, confidence)
+- GET /api/v1/risks/{risk_id} — full detail with evidence
+- GET /api/v1/risks/{risk_id}/evidence — evidence viewer (source text, context)
+- POST /api/v1/risks/{risk_id}/feedback — analyst feedback (correct/incorrect)
+-   Risk Evolution API
+- POST /api/v1/companies/{id}/evolution — trigger (year_from, year_to)
+- GET /api/v1/companies/{id}/evolution — list evolution analyses
+- GET /api/v1/evolution/{id} — detailed evolution report
+- GET /api/v1/evolution/{id}/diff — side-by-side comparison data
+- GET /api/v1/evolution/{id}/review-queue — items needing review
+- POST /api/v1/evolution/{id}/review/{item_id} — submit review decision
+-   Intelligence API
+- GET /api/v1/companies/{id}/profile — company risk profile
+- POST /api/v1/explorer/scan — run risk explorer scan
+- GET /api/v1/explorer/scans — list saved scans
+- POST /api/v1/explorer/scans — save scan
+- GET /api/v1/explorer/scans/{id}/results — scan results
+- POST /api/v1/comparison/companies — cross-company comparison
+- GET /api/v1/sectors/{sector}/intelligence — industry intelligence
+- GET /api/v1/companies/{id}/peer-comparison — peer comparison
+- GET /api/v1/companies/{id}/financials — financial snapshots
+- GET /api/v1/companies/{id}/risk-financial-correlation — correlation analysis
+- GET /api/v1/companies/{id}/news — news feed
+- GET /api/v1/companies/{id}/events — event timeline
+- POST /api/v1/scanner/run — multi-factor scan
+- GET /api/v1/scanner/scans — list saved scans
+- POST /api/v1/scanner/scans — save scan
+-   Workspace & User API
+- GET /api/v1/workspaces/me — current workspace
+- POST /api/v1/workspaces — create workspace
+- PATCH /api/v1/workspaces/{id} — update settings
+- GET /api/v1/workspaces/{id}/members — list members
+- POST /api/v1/workspaces/{id}/members — invite member
+- PATCH /api/v1/workspaces/{id}/members/{user_id} — update role
+- DELETE /api/v1/workspaces/{id}/members/{user_id} — remove member
+- GET /api/v1/users/me — current user profile
+- PATCH /api/v1/users/me — update preferences
+-   Custom Taxonomy API
+- GET /api/v1/workspaces/{id}/taxonomy — effective taxonomy (base + overrides)
+- POST /api/v1/workspaces/{id}/taxonomy/rules — create rule
+- PATCH /api/v1/workspaces/{id}/taxonomy/rules/{rule_id} — update rule
+- DELETE /api/v1/workspaces/{id}/taxonomy/rules/{rule_id} — delete rule
+- POST /api/v1/workspaces/{id}/taxonomy/reclassify — trigger re-classification
+-   Analyst Workspace API
+- GET /api/v1/workspaces/{id}/watchlist — watchlisted companies
+- POST /api/v1/workspaces/{id}/watchlist — add to watchlist
+- DELETE /api/v1/workspaces/{id}/watchlist/{company_id} — remove
+- GET /api/v1/analyst/notes — list notes (filter by entity)
+- POST /api/v1/analyst/notes — create note
+- PATCH /api/v1/analyst/notes/{id} — update note
+- GET /api/v1/analyst/activity — recent activity feed
+-   PDF Annotation API
+- GET /api/v1/reports/{id}/annotations — list annotations
+- POST /api/v1/reports/{id}/annotations — create annotation
+- PATCH /api/v1/annotations/{id} — update
+- DELETE /api/v1/annotations/{id} — delete
+- GET /api/v1/reports/{id}/annotations/export — export all annotations
+-   Report Generation API
+- POST /api/v1/reports/generate — trigger report generation
+- GET /api/v1/reports/generated — list generated reports
+- GET /api/v1/reports/generated/{id}/status — generation status
+- GET /api/v1/reports/generated/{id}/download — download PDF
+-   Search API
+- POST /api/v1/search/chunks — semantic search
+- POST /api/v1/search/risks — risk search
+- GET /api/v1/search/suggest — autocomplete
+-   Health & Monitoring
+- GET /health — liveness
+- GET /ready — readiness (db, redis, vector db)
+- GET /metrics — Prometheus metrics
+-   API Documentation
+- OpenAPI/Swagger at /docs
+- ReDoc at /redoc
+- Example requests/responses for all endpoints
+- Authentication documentation
+Deliverables
+- Complete FastAPI application with all endpoints
+- Authentication and workspace isolation
+- Background job processing for extraction, evolution, reports
+- Real-time status via SSE
+- Comprehensive API documentation
+Definition of Done
+- All endpoints return correct status codes and response schemas
+- Authentication required for all non-public endpoints
+- Workspace isolation enforced at API layer
+- Background jobs tracked, retryable, visible via API
+- SSE progress updates work for long-running jobs
+- Rate limiting prevents abuse
+- OpenAPI spec validates against all endpoints
+- Integration tests for all major API flows
+Technical Risks
+- Background job reliability — use Celery with Redis broker for production, FastAPI BackgroundTasks for MVP
+- SSE connection management at scale — consider WebSocket upgrade for production
+- Large response pagination — use cursor-based pagination for performance
+- File upload streaming — handle multipart efficiently, avoid memory spikes
+PHASE L — FRONTEND
+Objective
+Build the complete React frontend with all interfaces required by the PRD: landing, auth, upload, dashboard, risk explorer, risk detail, evidence viewer, heatmap, evolution timeline, diff views, comparisons, intelligence views, report generator, analyst workspace, PDF annotation workspace, responsive design, dark/light mode.
+Dependencies
+Phase A (frontend scaffold), Phase K (API endpoints), Phase B (design system colors/severity gradient)
+TODO LIST
+L.1 Design System & Core UI
+- src/theme/ — Tailwind config with custom colors (severity gradient: green→yellow→orange→red), fonts, spacing
+- src/components/ui/ — Button, Input, Select, Card, Modal, Dropdown, Tooltip, Toast, Badge, Avatar, Table, Pagination, Skeleton, Tabs, Accordion, Progress, Slider, Switch, Checkbox, RadioGroup
+- src/components/layout/ — Sidebar, Header, Footer, PageContainer, Grid, Flex
+- src/components/charts/ — RiskHeatmap, RiskTimeline, SeverityDistribution, SectorRadar, FinancialTrend, EvolutionSankey (Recharts + D3)
+- src/hooks/ — useAuth, useWorkspace, useTheme, useDebounce, useLocalStorage, useMediaQuery
+- src/stores/ — authStore, workspaceStore, uiStore (theme, sidebar, modals), queryClient (React Query)
+- Dark/light mode: CSS variables, Tailwind dark mode class strategy, persistence in localStorage
+- Responsive breakpoints: mobile (<640), tablet (640-1024), desktop (>1024)
+- Framer Motion animations: page transitions, modal enter/exit, card hover, skeleton loading
+- Presentation mode: global font scale, simplified panels, hide chrome
+L.2 Landing & Authentication
+- / — Landing page: hero, feature highlights, demo video, CTA
+- /login, /register — Auth.js/Clerk integration
+- /onboarding — Workspace creation, company setup, first upload
+- Protected route wrapper
+L.3 Upload Workflow
+- /upload — Drag-drop zone, multi-file, progress per file
+- Upload queue with status: queued → uploading → processing → complete/error
+- Processing status detail: stage, progress %, logs (expandable)
+- Company/year selection during upload
+- Recent uploads list with quick actions
+L.4 Company Dashboard
+- /companies/[id] — Main dashboard
+- Header: company name, ticker, sector, market cap, last updated
+- Risk Score card: overall score, confidence gauge, trend
+- Risk Distribution: donut chart by category, stacked bar by severity
+- Risk Timeline: yearly risk count, new/removed, severity trend
+- Emerging Risks: top 3 with severity badges
+- Top Risk Categories: horizontal bars with counts
+- AI Executive Summary: narrative with confidence indicator
+- Financial Snapshot: key metrics cards + sparklines
+- Latest News: 5 items with sentiment badges
+- Quick Actions: View Risks, Run Scan, Generate Report, Compare Peers
+L.5 Risk Explorer
+- /explorer — Full-screen screening interface
+- Left panel: Filter builder (category tree, severity slider, confidence, year, sector, market cap, custom filters)
+- Predefined scan buttons: Governance, Cyber, Climate, Regulatory, Supply Chain, AI Regulation, ESG, Litigation, Auditor, Financial Stability
+- Right panel: Results table (company, risk summary, category, severity, confidence, year, evidence link)
+- Row click → slide-over risk detail
+- Save scan button → name, description, schedule
+- Export results (CSV)
+L.6 Risk Detail View
+- /risks/[id] — Dedicated risk page
+- Header: risk title, category badge, severity badge, confidence gauge
+- AI Summary: structured narrative
+- Evidence Panel: source paragraph highlighted, page navigation, PDF viewer sync
+- Context: related risks (same company/year), evolution history
+- Financial correlation: linked financial metrics
+- News correlation: related news items
+- Actions: Add to watchlist, Create note, Flag for review, Share
+L.7 Evidence & Source Navigation
+- components/EvidenceViewer — reusable component
+- Side-by-side: current year vs. prior year (for evolution)
+- Highlighted changes: additions (green), removals (red), modifications (yellow)
+- PDF viewer integration: navigate to page, highlight paragraph
+- Citation trail: risk → evidence → chunk → page → PDF
+L.8 Risk Heatmap
+- components/RiskHeatmap — interactive grid
+- Axes: categories (y) × severity (x) or companies (x)
+- Cell: count, color intensity, click → filtered risk list
+- Tooltip: category breakdown
+- Filters: year, sector, company selection
+- Export as image
+L.9 Risk Evolution Timeline
+- /companies/[id]/evolution — Evolution view
+- Timeline: yearly markers with risk counts
+- Year-pair selector: compare any two years
+- Change summary cards: New (count), Removed, Severity Up, Severity Down, Modified
+- AI Evolution Summary: narrative
+- Detailed list: all changes with type badges, click → diff view
+L.10 Diff/Comparison Views
+- components/RiskDiff — side-by-side risk comparison
+- Text diff: highlighted additions/removals (diff-match-patch)
+- Metadata diff: severity, category, confidence changes
+- Visual severity change indicator (arrow up/down, color)
+- Sync scrolling for long texts
+L.11 Company Comparison
+- /compare — Multi-company comparison
+- Company selector (multi-select, max 10)
+- Radar chart: risk category profile
+- Grouped bars: severity distribution
+- Table: risk counts by category per company
+- Common risks table
+- Divergent risks highlight
+L.12 Industry Comparison
+- /sectors/[sector] — Industry dashboard
+- Sector heatmap: companies × risk categories
+- Sector trends: category frequency over 5 years
+- Benchmark scorecard: company vs. sector median
+- Peer ranking table
+- Emerging industry risks panel
+L.13 Intelligence Views
+- /intelligence/financial/[companyId] — Financial health
+- /intelligence/market/[companyId] — News & events
+- /intelligence/correlation/[companyId] — Risk-financial correlation
+- Charts: financial trends, news sentiment timeline, correlation scatter
+L.14 Report Generator
+- /reports/generate — Report builder wizard
+- Step 1: Select company(s), year range
+- Step 2: Select sections (toggle each)
+- Step 3: Customize: add logo, custom intro, confidentiality
+- Step 4: Preview (HTML), Generate PDF
+- Progress modal with stage updates
+- Download link, share link (signed URL)
+L.15 Analyst Workspace
+- /workspace — Personal workspace
+- Watchlist: companies with risk alerts
+- Saved Reports: list with quick view
+- Saved Scans: list with last run, results preview
+- Notes: searchable, filterable by entity
+- Recent Activity: feed of actions
+- Preferences: default view, notifications, theme
+L.16 PDF Annotation Workspace
+- /reports/[id]/annotate — Full-screen PDF viewer with annotations
+- PDF.js or custom canvas renderer
+- Tools: Highlight (color picker), Note (pinned to highlight), Bookmark
+- AI highlight suggestions: "This paragraph discusses cyber risk"
+- Annotation list panel: filter by type, page, author
+- Collaboration: see other analysts' annotations (color-coded)
+- Review comments: thread on annotations
+- Export annotations (JSON, PDF with annotations)
+L.17 Global Features
+- Search everywhere (Cmd+K): companies, risks, reports, scans
+- Keyboard shortcuts: navigation, actions, focus search
+- Notifications: toast + notification center (bell icon)
+- Empty states with illustrations
+- Error boundaries with retry
+- Loading skeletons for all async data
+Deliverables
+- Complete React application with all routes
+- Design system with 20+ reusable components
+- All 15+ major pages implemented
+- PDF annotation workspace functional
+- Dark/light mode, responsive, presentation mode
+- Search-everywhere, keyboard shortcuts
+Definition of Done
+- All pages render without console errors
+- Lighthouse score > 90 (performance, accessibility, best practices)
+- Dark/light toggle persists, no flash
+- Responsive: works on 375px, 768px, 1440px viewports
+- PDF annotation: highlight, note, bookmark persist
+- Search everywhere returns results in < 200ms
+- Presentation mode scales UI appropriately
+- E2E tests cover critical user flows (upload → extract → view → report)
+Technical Risks
+- PDF.js integration complexity — evaluate react-pdf vs. custom canvas
+- Annotation sync with backend — operational transform or last-write-wins
+- Large risk lists virtualization — use @tanstack/react-virtual
+- Chart performance with 1000+ data points — canvas rendering, data decimation
+- State management complexity — Zustand slices per domain, avoid prop drilling
+PHASE M — EVALUATION AND TESTING
+Objective
+Comprehensive testing at all levels: unit, integration, E2E, and AI-specific evaluation. Build evaluation datasets, define metrics, and establish regression testing.
+Dependencies
+All implementation phases (A-L) substantially complete
+TODO LIST
+-   Unit test infrastructure
+- Backend: pytest fixtures for db, redis, mocked LLM, test containers
+- Frontend: vitest + @testing-library/react, MSW for API mocking
+- Coverage targets: backend 80%, frontend 70%
+-   Unit tests — Core services
+- Parsing: PDF parser, cleaner, section detector, metadata extractor
+- Chunking: all 5 strategies, metadata preservation
+- Embeddings: generator, cache, batch processing
+- Retrieval: dense, sparse, hybrid, reranker
+- Taxonomy: loader, validator, classifier
+- LLM: provider abstraction, structured output, retry logic
+- Extraction: detector, extractor, classifier, scorer, deduplicator
+- Evolution: normalizer, matcher, classifier, emerging detector
+- Intelligence: all 10 modules
+- Reporting: generator, template rendering
+-   Integration tests
+- API: all endpoints with test database
+- Processing pipeline: upload → parse → chunk → embed → extract → evolve
+- Authentication: login, workspace switching, role-based access
+- Background jobs: job creation, progress, completion, failure, retry
+- WebSocket/SSE: real-time updates
+- File upload: large files, concurrent, error handling
+-   End-to-end tests (Playwright)
+- Critical path: Register → Create workspace → Upload report → Wait for extraction → View risks → View evolution → Generate report
+- Risk Explorer: Run predefined scan → View results → Save scan
+- Comparison: Select 3 companies → View comparison → Export
+- Analyst workspace: Add watchlist → Create note → View activity
+- PDF Annotation: Open report → Highlight → Add note → Save → Reload
+- Auth: Login → Logout → Session expiry → Password reset
+- Responsive: Mobile viewport tests for key pages
+-   AI Evaluation Dataset Construction
+- data/eval/ — golden dataset
+- 50 annual reports (10 companies × 5 years) with ground truth
+- Ground truth: human-labeled risks (category, severity, evidence spans)
+- Evolution pairs: 20 year-pairs with labeled changes
+- Classification test set: 500 risk statements with taxonomy labels
+- Evidence grounding test: 200 risks with verified citations
+-   Risk Extraction Metrics
+- Precision, Recall, F1 at risk level (exact match on normalized text)
+- Category classification accuracy (per category, macro/micro avg)
+- Severity classification accuracy (within ±1 level)
+- Evidence grounding rate: % risks with verified quote
+- Hallucination rate: % extracted risks not in source
+- Duplicate detection: precision/recall on known duplicates
+-   Taxonomy Classification Metrics
+- Multi-label: subset accuracy, Hamming loss, F1-micro, F1-macro
+- Per-category: precision, recall, F1
+- Confidence calibration: reliability diagram, ECE (Expected Calibration Error)
+-   Retrieval Metrics
+- Recall@5, Recall@10, MRR, nDCG@10 on 50 test queries
+- Latency percentiles (p50, p95, p99)
+- Filter accuracy: correct metadata filtering
+-   Evidence Grounding Metrics
+- Quote verification rate: % quotes found exactly in source
+- Span accuracy: char_start/char_end match (exact, ±10 chars, ±50 chars)
+- Citation completeness: risks with ≥1 verified evidence
+-   Hallucination Rate Measurement
+- Adversarial test: insert fake risk in report → measure detection
+- Cross-check: LLM extraction vs. keyword baseline
+- Human evaluation: 100 random risks rated for faithfulness
+-   Risk Matching Accuracy
+- Evolution pair classification accuracy (NEW/REMOVED/MODIFIED/SEVERITY)
+- Semantic similarity threshold optimization (precision-recall curve)
+- Emerging risk detection: precision@k for top themes
+-   Regression Testing
+- Golden master: snapshot test extraction output for 10 reports
+- Alert on metric degradation > 5%
+- Nightly evaluation run on full golden dataset
+-   Edge Case Testing
+- OCR failure cases: scanned docs, rotated pages, watermarks
+- Large documents: 300+ pages, memory, timeout
+- Malformed PDFs: password protected, corrupted, empty
+- Multi-language: Hindi, Chinese, Japanese sections
+- Concurrent uploads: 10 simultaneous, queue behavior
+- Network failures: LLM API timeout, rate limit, 5xx
+-   Performance Testing
+- Load test: 100 concurrent users, 10 uploads/min
+- Stress test: 500-page report, max chunks
+- Soak test: 24hr continuous processing
+- Database: query latency under load, connection pool saturation
+Deliverables
+- Complete test suite (unit, integration, E2E)
+- AI evaluation dataset (50 reports, 20 evolution pairs, 500 classified risks)
+- Evaluation scripts and CI integration
+- Performance benchmarks
+- Regression detection pipeline
+Definition of Done
+- pytest passes with >80% backend coverage
+- npm run test passes with >70% frontend coverage
+- npx playwright test passes all E2E scenarios
+- AI evaluation: Extraction F1 > 0.82, Classification F1 > 0.85, Grounding > 0.95
+- Hallucination rate < 3% on adversarial test
+- Evolution matching accuracy > 0.88
+- All NFR targets met (ingestion < 30s, evolution < 10s, dashboard < 2s)
+- Nightly CI runs full evaluation suite
+Technical Risks
+- Human labeling for golden dataset is expensive — start with 10 reports, expand iteratively
+- LLM non-determinism affects evaluation — fix temperature=0, set seed, run multiple times
+- Evaluation metrics may not correlate with user satisfaction — include qualitative review
+- CI runtime for full evaluation may exceed limits — run subset on PR, full nightly
+PHASE N — SECURITY AND PRODUCTIONIZATION
+Objective
+Harden the system for production: authentication, authorization, workspace isolation, file security, API security, secrets management, rate limiting, logging, monitoring, observability, caching, performance optimization, cost monitoring.
+Dependencies
+Phase K (API complete), Phase L (frontend complete), Phase J (data layer with RLS)
+TODO LIST
+-   Authentication & Authorization
+- Auth.js/Clerk integration complete (Phase K)
+- Role-based access control: owner, admin, analyst, viewer
+- Permission matrix per resource (company, report, risk, scan, annotation)
+- Workspace isolation: enforce at API, database (RLS), and frontend
+- Session management: JWT refresh, logout everywhere, device tracking
+- OAuth providers: Google, Microsoft, GitHub, SSO (SAML/OIDC) for enterprise
+-   File Security
+- Upload: virus scan (ClamAV), MIME validation, size limits
+- Storage: presigned URLs, no direct public access
+- Encryption: at rest (S3 SSE-S3), in transit (TLS)
+- Retention: auto-delete processed files after 30 days (configurable)
+- Watermarking: optional dynamic watermark on PDF viewer
+-   API Security
+- Rate limiting: per-workspace (1000 req/min), per-user (100 req/min), per-endpoint (upload: 10/min)
+- Input validation: all endpoints use Pydantic/Zod schemas
+- SQL injection: parameterized queries only (SQLAlchemy ORM)
+- XSS prevention: Content Security Policy, sanitize user content
+- CORS: restrict to known origins
+- Security headers: HSTS, X-Frame-Options, X-Content-Type-Options
+-   Environment Secrets Management
+- No secrets in code or Docker images
+- Development: .env.local (gitignored), 1Password CLI
+- Staging/Production: Doppler / AWS Secrets Manager / HashiCorp Vault
+- Rotation: API keys quarterly, database passwords monthly
+- Audit: secret access logging
+-   Logging & Observability
+- Structured logging: structlog JSON, correlation IDs
+- Log levels: DEBUG (dev), INFO (prod), WARN/ERROR (alert)
+- Centralized logging: Loki/Grafana or Datadog
+- Key logs: auth events, file uploads, extraction jobs, errors, cost events
+-   Monitoring & Alerting
+- Metrics: Prometheus + Grafana
+- Key metrics: request latency (p50/p95/p99), error rate, queue depth, job duration, LLM cost, token usage
+- Business metrics: reports processed, risks extracted, active workspaces, scans run
+- Alerts: error rate > 1%, p95 latency > 5s, job queue > 100, disk > 80%, LLM cost > daily budget
+- Uptime monitoring: Pingdom / Better Uptime
+-   Distributed Tracing
+- OpenTelemetry instrumentation (FastAPI, SQLAlchemy, HTTPX, Celery)
+- Trace: request → API → service → LLM → DB → response
+- Export to Jaeger / Tempo / Datadog
+-   Caching Strategy
+- Redis: session, query cache, rate limit counters, job status
+- Cache warming: pre-compute dashboard aggregates on extraction complete
+- Cache invalidation: on data mutation (new risk, evolution, financial update)
+- CDN: Cloudflare for static assets, PDF reports
+-   Performance Optimization
+- Database: query optimization, index review, connection pooling
+- Vector search: HNSW ef_search tuning, quantization
+- LLM: prompt caching (Anthropic), batch requests, model selection (Haiku for simple tasks)
+- Frontend: code splitting, lazy loading, image optimization, bundle analysis
+- Background jobs: priority queues, concurrency limits
+-   Cost Monitoring
+- LLM cost tracking per workspace, per feature (extraction, evolution, summary, report)
+- Daily/Monthly budgets with alerts
+- Cost dashboard in admin panel
+- Optimization recommendations: cache hit rate, model downgrade opportunities
+-   Data Privacy & Compliance
+- GDPR: data export, deletion, consent
+- SOC2 readiness: access logs, encryption, incident response
+- Data processing agreements with subprocessors (Anthropic, OpenAI, cloud provider)
+- PII detection in uploads (optional)
+Deliverables
+- Production-hardened backend and frontend
+- Complete observability stack (logs, metrics, traces)
+- Security review checklist completed
+- Cost monitoring dashboard
+- Incident response runbook
+Definition of Done
+- Penetration test (basic) passes — no critical/high vulnerabilities
+- Load test: 100 concurrent users, p95 < 2s, error rate < 0.1%
+- All secrets managed externally, none in repo
+- RLS policies verified with automated tests
+- Alerting fires correctly on injected failures
+- Trace sampling captures 10% of requests, 100% of errors
+- Cost tracking accurate within 5% of actual bills
+- Backup/restore tested quarterly
+Technical Risks
+- Auth.js/Clerk migration if switching providers — abstract behind interface
+- pgvector performance at scale — monitor index size, consider partitioning
+- LLM cost unpredictability — implement hard limits per workspace
+- Log volume at scale — implement log sampling, structured fields for querying
+PHASE O — DEPLOYMENT
+Objective
+Deploy the complete system to production: Docker images, CI/CD pipeline, environment configuration, database, vector DB, backend, frontend, production testing, rollback strategy.
+Dependencies
+Phase N complete (production-ready code)
+TODO LIST
+-   Production Docker images
+- Multi-stage builds: builder → runtime (distroless/alpine)
+- Backend: install deps → compile .pyc → copy to runtime
+- Frontend: build → nginx static serve (or Vite preview for SSR)
+- Worker: same as backend, different entrypoint
+- Scan for vulnerabilities: trivy / docker scout
+- Sign images (cosign) for supply chain security
+-   CI/CD Pipeline (GitHub Actions)
+- ci.yml: lint, typecheck, unit tests, integration tests (testcontainers)
+- build.yml: build & push Docker images on tag/main
+- deploy-staging.yml: deploy to staging on main branch
+- deploy-prod.yml: manual approval, deploy to production
+- Environments: development, staging, production with protection rules
+- Artifacts: test reports, coverage, SBOM
+-   Infrastructure as Code
+- Option A: Fly.io (fly.toml for app, postgres, redis)
+- Option B: Render (render.yaml for services, managed postgres, redis)
+- Option C: AWS ECS/Fargate + RDS + ElastiCache (Terraform)
+- Decision: Render for MVP (simplest managed services)
+- Managed PostgreSQL with pgvector extension
+- Managed Redis
+- Object storage: S3-compatible (R2, MinIO, S3)
+-   Environment Configuration
+- Separate env files per environment (not in repo)
+- Secrets injected via platform secret management
+- Feature flags: FF_NEW_CHUNKING, FF_RERANKER, FF_ADVANCED_SCANNER
+-   Database Migration Strategy
+- Run migrations as pre-deploy job (init container)
+- Backward-compatible migrations only (additive)
+- Rollback: previous image + previous migration (down revision)
+- Zero-downtime: expand-contract pattern for schema changes
+-   Production Testing
+- Smoke tests: health, auth, upload, extract, search, dashboard
+- Canary deployment: 10% traffic → monitor → 100%
+- Synthetic monitoring: periodic API checks
+- Chaos engineering: kill pod, simulate latency, DB failover
+-   Rollback Strategy
+- Image tags: sha-<commit>, latest, stable
+- One-click rollback: fly deploy -i <previous-image> or Render rollback
+- Database rollback: alembic downgrade -1 (if safe)
+- Runbook: docs/runbooks/rollback.md
+-   Domain & SSL
+- Custom domain: app.risklens.ai
+- TLS: automatic via platform (Let's Encrypt)
+- DNS: Cloudflare for DNS, WAF, DDoS protection
+-   Post-Launch Operations
+- On-call rotation (if team > 2)
+- Runbooks: common incidents (queue backup, LLM API down, DB slow)
+- Capacity planning: review monthly
+- Security updates: dependabot, base image rebuild weekly
+Deliverables
+- Production deployment on managed platform
+- CI/CD pipeline with staging and production
+- Monitoring and alerting active
+- Rollback tested and documented
+- Custom domain with TLS
+Definition of Done
+- main branch deploys to staging automatically
+- Manual approval deploys to production
+- Staging and production isolated (separate DB, Redis, storage)
+- Smoke tests pass on every deploy
+- Rollback completes in < 5 minutes
+- All NFR targets met in production
+- Cost monitoring shows expected spend
+- Team can deploy independently
+Technical Risks
+- Platform limits (Render/Fly) may constrain scaling — plan migration path to AWS/GCP
+- pgvector on managed postgres may have version lag — verify extension availability
+- Cold starts on serverless — use minimum instances for worker
+- DNS propagation on rollback — keep TTL low (60s)
+MASTER EXECUTION ORDER
+Phase A: Project Foundation
+    ↓
+Phase B: Research Asset Integration
+    ↓
+Phase C: Document Intelligence Research  (time-boxed: 4 days max)
+    ↓
+Phase D: Document Processing Pipeline
+    ↓
+Phase E: Chunking Strategy
+    ↓
+Phase F: Embeddings and Retrieval
+    ↓
+Phase G: Core Risk AI Engine
+    ↓
+Phase H: Risk Evolution Engine
+    ↓
+Phase I: Intelligence Modules
+    ↓
+Phase J: Data Layer (schema migrations — can start early, parallel with D)
+    ↓
+Phase K: Backend/API
+    ↓
+Phase L: Frontend
+    ↓
+Phase M: Evaluation and Testing  (continuous, but formal phase after K/L)
+    ↓
+Phase N: Security and Productionization
+    ↓
+Phase O: Deployment
+Critical Path: A → B → C → D → E → F → G → H → I → K → L → M → N → O
+Phase J (Data Layer) starts in parallel with Phase D — schema design begins early, migrations applied as entities are needed.
+PARALLEL WORKSTREAMS
+Track	Phases	Focus
+Track A — AI/ML [AI/ML]	B, C, E, F, G, H, M (AI eval)	Taxonomy, prompts, chunking, embeddings, extraction, evolution, evaluation
+Track B — Backend [BACKEND]	A, D, G, H, I, J, K, N	Pipeline, API, services, database, security, production hardening
+Track C — Frontend [FRONTEND]	A, L, N	UI components, pages, state, PDF viewer, real-time updates
+Track D — Data/Research [DATA]	B, C, F, J, M	Taxonomy, document analysis, retrieval, schema, evaluation data
+Track E — DevOps/Infra [DEVOPS]	A, N, O	Docker, CI/CD, monitoring, deployment, secrets, cost
+Solo/2-person team sequencing:
+1. Track A + Track D (combined: research → AI pipeline)
+2. Track B (backend + data layer)
+3. Track C (frontend consumes backend APIs)
+4. Track E (runs throughout, intensifies in Phase N/O)
+PRIORITY MATRIX
+Module	Priority	Rationale
+Project Foundation (A)	P0	Everything depends on it
+Document Processing Pipeline (D)	P0	Core ingestion — blocks all AI work
+Core Risk AI Engine (G)	P0	Primary value prop — risk extraction
+Risk Evolution Engine (H)	P0	USP — year-over-year comparison
+Data Layer (J)	P0	Backbone for all features
+Backend/API (K)	P0	Connects AI to frontend
+Embeddings & Retrieval (F)	P1	Enables evolution matching, search, RAG
+Chunking Strategy (E)	P1	Quality dependency for extraction
+Research Asset Integration (B)	P1	Accelerates G/H if assets exist
+Company Risk Profile (I.1)	P1	Core dashboard view
+Risk Explorer (I.2)	P1	Key differentiator (screening)
+Executive Dashboard	P1	Demo centerpiece
+Financial Health Intelligence (I.5)	P1	Risk validation via financials
+Industry Intelligence (I.4)	P1	Peer comparison — strong demo
+Market/News Intelligence (I.6)	P1	Real-world correlation
+Authentication & Workspaces	P1	Required for pilot deployment
+Executive Report Generator (I.10)	P1	Deliverable artifact
+Multi-Factor Risk Scanner (I.7)	P2	Advanced screening — timeboxed
+Custom Risk Filters (I.8)	P2	Power user feature
+Custom Taxonomy Rules (I.9)	P2	Enterprise adaptability
+Analyst Workspace (L.15)	P2	Retention, productivity
+PDF Annotation Workspace (L.16)	P2	Collaborative analysis
+Document Intelligence Research (C)	P2	De-risks D — time-boxed
+Evaluation & Testing (M)	P2	Quality gate — continuous
+Security & Productionization (N)	P2	Pilot readiness
+Deployment (O)	P2	Go-live
+Dark/Light Theme + Responsive (L.17)	P3	Polish
+Presentation Mode	P3	Demo polish
+Search Everywhere + Shortcuts	P3	Power user UX
+RECOMMENDED FIRST 10 TASKS
+ 1. Initialize Git repository with conventional commits, .gitignore, and branch protection rules
+ 2. Create docker-compose.yml with postgres (pgvector), redis, backend, frontend, worker services — verify docker-compose up works
+ 3. Set up Python backend project structure with pyproject.toml, FastAPI app factory, Pydantic Settings config, structlog logging, and /health endpoint
+ 4. Set up React+Vite+Tailwind frontend with path aliases, React Query, Zustand, and theme provider (dark/light)
+ 5. Configure Alembic for async migrations and create initial migration for workspaces, companies, reports tables
+ 6. Define Pydantic schemas for ExtractedRisk, RiskEvidence, RiskClassification, SeverityScore, ConfidenceScore, RiskEvolutionEntry in app/schemas/risk.py
+ 7. Implement PDF upload API (POST /api/v1/reports/upload) with file validation, SHA256, storage abstraction, and Report record creation
+ 8. Build PDF parsing service using PyMuPDF with text extraction, block detection, and table extraction via pdfplumber — output ParsedDocument
+ 9. Implement risk section detection using heading hierarchy analysis and keyword matching ("Risk Factors", "Item 1A", "Principal Risks")
+10. Create background job infrastructure (Celery + Redis or FastAPI BackgroundTasks) with ProcessingJob tracking for multi-stage pipeline
+This master TODO list is derived directly from the RISKLENS AI PRD and covers the complete 1-month build lifecycle from project initialization to production deployment. Each phase includes concrete, verifiable tasks with measurable definition-of-done criteria suitable for direct import into Notion, Jira, Linear, GitHub Projects, or ClickUp.
+
+
+
+
+
+
+
+
