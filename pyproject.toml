@@ -103,6 +103,7 @@ src = ["app"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "B"]
 ignore = ["S101", "B008"]
+per-file-ignores = { "app/llm/prompts/*.py" = ["E501"] }
 
 [tool.ruff.format]
 quote-style = "double"

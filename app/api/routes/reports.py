@@ -75,7 +75,11 @@ async def generate_executive_summary(
         ],
         key_changes=[],
         financial_health="Financial data available" if financial else "No financial data",
-        ai_narrative=f"Executive summary for {company.name} FY{target_year}. {len(risks)} material risks identified across {len(risk_distribution)} severity levels.",
+        ai_narrative=(
+            f"Executive summary for {company.name} FY{target_year}. "
+            f"{len(risks)} material risks identified across "
+            f"{len(risk_distribution)} severity levels."
+        ),
         confidence_score=0.85,
         generated_at=func.now(),
     )
