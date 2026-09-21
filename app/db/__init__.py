@@ -1,6 +1,7 @@
 from app.db.base import (
     Base,
     Company,
+    DocumentChunk,
     EvolutionEntry,
     FinancialSnapshot,
     Report,
@@ -16,6 +17,7 @@ __all__ = [
     "Base",
     "Company",
     "Report",
+    "DocumentChunk",
     "RiskItem",
     "EvolutionEntry",
     "FinancialSnapshot",

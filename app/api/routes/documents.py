@@ -52,8 +52,21 @@ async def process_document_background(document_id: UUID):
             normalized_pages = [normalize_text(page) for page in cleaned_pages]
 
             _ = detect_sections(normalized_pages)
-            _ = chunk_document("\n\n".join(normalized_pages))
 
+            # 1. Chunking + Embedding + Vector Store Persistence
+            from app.retrieval.embedding_pipeline import create_embedding_pipeline
+
+            embedding_pipeline = create_embedding_pipeline()
+            chunks = await embedding_pipeline.process_and_store_chunks(
+                db=session,
+                report_id=report.id,
+                company_id=report.company_id,
+                fiscal_year=report.fiscal_year,
+                text_or_pages=normalized_pages,
+            )
+
+            # 2. Risk Extraction + Risk Persistence
+            from app.db.base import RiskItem
             from app.models.document import PageContent
 
             page_contents = [
@@ -64,11 +77,35 @@ async def process_document_background(document_id: UUID):
             pipeline = create_pipeline()
             result = pipeline.run(page_contents, str(document_id))
 
+            for risk_item in result.risks:
+                entities_dump = [
+                    e.model_dump() if hasattr(e, "model_dump") else dict(e)
+                    for e in (risk_item.entities or [])
+                ]
+                db_risk = RiskItem(
+                    report_id=str(report.id),
+                    category=risk_item.category,
+                    severity=risk_item.severity,
+                    confidence_score=risk_item.confidence_score,
+                    summary=risk_item.summary,
+                    source_page=risk_item.source_page,
+                    source_paragraph=risk_item.source_paragraph,
+                    source_text_hash=risk_item.source_text_hash,
+                    entities=entities_dump,
+                    extra_metadata=risk_item.metadata or {},
+                )
+                session.add(db_risk)
+
             report.processing_status = "completed"
             report.pages = len(pages)
             await session.commit()
 
-            logger.info("document_processed", document_id=str(document_id), risks=len(result.risks))
+            logger.info(
+                "document_processed",
+                document_id=str(document_id),
+                chunks=len(chunks),
+                risks=len(result.risks),
+            )
 
         except Exception as e:
             report.processing_status = "failed"

@@ -33,6 +33,15 @@ class SentenceTransformersEmbedding(EmbeddingProvider):
         self.dimension = settings.EMBEDDING_DIMENSION
         self._model = None
 
+    def _validate_dimension(self, embedding: list[float], context: str) -> list[float]:
+        actual_dimension = len(embedding)
+        if actual_dimension != self.dimension:
+            raise ValueError(
+                f"Embedding dimension mismatch for {context}: expected {self.dimension}, "
+                f"got {actual_dimension} from {self.model_name}"
+            )
+        return embedding
+
     def _load_model(self):
         if self._model is None:
             try:
@@ -50,12 +59,15 @@ class SentenceTransformersEmbedding(EmbeddingProvider):
     async def embed(self, texts: list[str]) -> list[list[float]]:
         self._load_model()
         embeddings = self._model.encode(texts, convert_to_numpy=True, show_progress_bar=False)
-        return embeddings.tolist()
+        return [
+            self._validate_dimension(embedding.tolist(), "document")
+            for embedding in embeddings
+        ]
 
     async def embed_query(self, text: str) -> list[float]:
         self._load_model()
         embedding = self._model.encode([text], convert_to_numpy=True, show_progress_bar=False)
-        return embedding[0].tolist()
+        return self._validate_dimension(embedding[0].tolist(), "query")
 
     def get_dimension(self) -> int:
         return self.dimension
@@ -65,11 +77,11 @@ class SentenceTransformersEmbedding(EmbeddingProvider):
 
 
 class OpenAIEmbedding(EmbeddingProvider):
-    def __init__(self, model_name: str = "text-embedding-3-large", api_key: str | None = None):
+    def __init__(self, model_name: str | None = None, api_key: str | None = None):
         settings = get_settings()
-        self.model_name = model_name
+        self.model_name = model_name or settings.EMBEDDING_MODEL
         self.api_key = api_key or settings.OPENAI_API_KEY
-        self.dimension = 3072 if "3-large" in model_name else 1536
+        self.dimension = 3072 if "3-large" in self.model_name else 1536
         self._client = None
 
     def _get_client(self):
@@ -89,7 +101,14 @@ class OpenAIEmbedding(EmbeddingProvider):
                 model=self.model_name,
                 input=texts,
             )
-            return [d.embedding for d in response.data]
+            embeddings = [d.embedding for d in response.data]
+            for embedding in embeddings:
+                if len(embedding) != self.dimension:
+                    raise ValueError(
+                        f"Embedding dimension mismatch: expected {self.dimension}, "
+                        f"got {len(embedding)} from {self.model_name}"
+                    )
+            return embeddings
         except Exception as e:
             logger.error("openai_embedding_error", error=str(e))
             raise

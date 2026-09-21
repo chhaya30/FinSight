@@ -1,3 +1,4 @@
+import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
@@ -126,43 +127,104 @@ class InMemoryVectorStore(VectorStore):
 class PGVectorStore(VectorStore):
     def __init__(
         self,
-        connection_string: str,
-        table_name: str = "embeddings",
+        connection_string: str | None = None,
+        table_name: str = "document_chunks",
         embedding_provider: EmbeddingProvider | None = None,
+        session: Any = None,
     ):
-        self.connection_string = connection_string
+        from app.config.settings import get_settings
+
+        settings = get_settings()
+        self.connection_string = connection_string or settings.DATABASE_URL
         self.table_name = table_name
         self.embedding_provider = embedding_provider or create_embedding_provider()
+        self.session = session
+        self.dimension = self.embedding_provider.get_dimension()
         self._pool = None
+
+    def _validate_dimension(self, embedding: list[float], context: str) -> None:
+        if len(embedding) != self.dimension:
+            raise ValueError(
+                f"{context} embedding dimension mismatch: expected {self.dimension}, "
+                f"got {len(embedding)}"
+            )
 
     async def _get_pool(self):
         if self._pool is None:
             import asyncpg
 
-            self._pool = await asyncpg.create_pool(self.connection_string)
+            # Clean connection string if it has +asyncpg driver prefix for SQLAlchemy
+            conn_str = self.connection_string.replace("postgresql+asyncpg://", "postgresql://")
+            self._pool = await asyncpg.create_pool(conn_str)
         return self._pool
 
-    async def add_documents(self, documents: list[VectorDocument]) -> None:
+    async def add_documents(self, documents: list[VectorDocument], session: Any = None) -> None:
+        db_session = session or self.session
+
+        for doc in documents:
+            if doc.embedding is None:
+                doc.embedding = await self.embedding_provider.embed_query(doc.text)
+            self._validate_dimension(doc.embedding, "Document")
+
+        if db_session is not None:
+            from app.db.base import DocumentChunk
+
+            for doc in documents:
+                meta = doc.metadata or {}
+                chunk_index = meta.get("chunk_index", 0)
+                report_id = meta.get("report_id", doc.id)
+
+                chunk = DocumentChunk(
+                    id=doc.id,
+                    report_id=str(report_id),
+                    chunk_index=int(chunk_index),
+                    content=doc.text,
+                    token_count=len(doc.text.split()),
+                    page_start=meta.get("start_page"),
+                    page_end=meta.get("end_page"),
+                    section_title=meta.get("section_title"),
+                    embedding=doc.embedding,
+                    metadata_=meta,
+                )
+                await db_session.merge(chunk)
+            await db_session.commit()
+            return
+
         pool = await self._get_pool()
+        import json
 
         async with pool.acquire() as conn:
             for doc in documents:
-                if doc.embedding is None:
-                    doc.embedding = await self.embedding_provider.embed_query(doc.text)
+                meta = doc.metadata or {}
+                report_id = meta.get("report_id", doc.id)
+                chunk_index = meta.get("chunk_index", 0)
 
                 await conn.execute(
                     f"""
-                    INSERT INTO {self.table_name} (id, text, embedding, metadata)
-                    VALUES ($1, $2, $3, $4)
-                    ON CONFLICT (id) DO UPDATE SET
-                        text = EXCLUDED.text,
+                    INSERT INTO {self.table_name} (
+                        id, report_id, chunk_index, content, token_count,
+                        page_start, page_end, section_title, embedding, metadata
+                    )
+                    VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9::vector, $10::jsonb)
+                    ON CONFLICT (report_id, chunk_index) DO UPDATE SET
+                        content = EXCLUDED.content,
+                        token_count = EXCLUDED.token_count,
+                        page_start = EXCLUDED.page_start,
+                        page_end = EXCLUDED.page_end,
+                        section_title = EXCLUDED.section_title,
                         embedding = EXCLUDED.embedding,
                         metadata = EXCLUDED.metadata
                     """,
-                    doc.id,
+                    str(doc.id),
+                    str(report_id),
+                    int(chunk_index),
                     doc.text,
-                    doc.embedding,
-                    doc.metadata,
+                    len(doc.text.split()),
+                    meta.get("start_page"),
+                    meta.get("end_page"),
+                    meta.get("section_title"),
+                    str(doc.embedding) if doc.embedding else None,
+                    json.dumps(meta),
                 )
 
     async def search(
@@ -170,65 +232,200 @@ class PGVectorStore(VectorStore):
         query_embedding: list[float],
         top_k: int = 10,
         filter: dict[str, Any] | None = None,
+        session: Any = None,
     ) -> list[dict[str, Any]]:
-        pool = await self._get_pool()
+        db_session = session or self.session
+        self._validate_dimension(query_embedding, "Query")
 
+        if db_session is not None:
+            from sqlalchemy import select
+            from app.db.base import DocumentChunk
+            from app.retrieval.embeddings import batch_cosine_similarity
+
+            stmt = select(DocumentChunk)
+            if filter:
+                if "report_id" in filter:
+                    stmt = stmt.where(DocumentChunk.report_id == str(filter["report_id"]))
+                if "company_id" in filter:
+                    stmt = stmt.where(
+                        DocumentChunk.metadata_["company_id"].as_string()
+                        == str(filter["company_id"])
+                    )
+                if "fiscal_year" in filter:
+                    stmt = stmt.where(
+                        DocumentChunk.metadata_["fiscal_year"].as_string()
+                        == str(filter["fiscal_year"])
+                    )
+
+            result = await db_session.execute(stmt)
+            chunks = result.scalars().all()
+
+            if not chunks:
+                return []
+
+            candidate_embeddings = []
+            valid_chunks = []
+            for c in chunks:
+                if c.embedding is not None:
+                    candidate_embeddings.append(c.embedding)
+                    valid_chunks.append(c)
+
+            if not valid_chunks:
+                return []
+
+            scores = batch_cosine_similarity(query_embedding, candidate_embeddings)
+            results = []
+            for chunk, score in zip(valid_chunks, scores, strict=True):
+                stored_metadata = chunk.metadata_ or {}
+                meta = {
+                    "report_id": str(chunk.report_id),
+                    "chunk_index": chunk.chunk_index,
+                    "start_page": chunk.page_start,
+                    "end_page": chunk.page_end,
+                    "section_title": chunk.section_title,
+                    **stored_metadata,
+                }
+
+                # Apply remaining metadata filters if present
+                if filter:
+                    match = True
+                    for k, v in filter.items():
+                        if k in ("company_id", "report_id", "fiscal_year"):
+                            continue
+                        if meta.get(k) != v:
+                            match = False
+                            break
+                    if not match:
+                        continue
+
+                results.append({
+                    "id": str(chunk.id),
+                    "text": chunk.content,
+                    "score": float(score),
+                    "metadata": meta,
+                })
+
+            results.sort(key=lambda x: float(x["score"]), reverse=True)
+            return results[:top_k]
+
+        pool = await self._get_pool()
         filter_clause = ""
         filter_params = []
 
         if filter:
             conditions = []
-            for i, (key, value) in enumerate(filter.items(), 1):
-                conditions.append(f"metadata->>'{key}' = ${i + 1}")
-                filter_params.append(str(value))
-            filter_clause = "WHERE " + " AND ".join(conditions)
+            idx = 2
+            for key, value in filter.items():
+                if key in ("company_id", "report_id", "fiscal_year"):
+                    if key == "report_id":
+                        conditions.append(f"{key} = ${idx}")
+                    else:
+                        conditions.append(f"metadata->>'{key}' = ${idx}")
+                    filter_params.append(str(value))
+                else:
+                    conditions.append(f"metadata->>'{key}' = ${idx}")
+                    filter_params.append(str(value))
+                idx += 1
+            if conditions:
+                filter_clause = "WHERE " + " AND ".join(conditions)
 
         async with pool.acquire() as conn:
             rows = await conn.fetch(
                 f"""
-                SELECT id, text, embedding, metadata,
-                       1 - (embedding <=> $1) as similarity
+                  SELECT id, content, embedding, metadata,
+                      report_id, chunk_index, page_start, page_end, section_title,
+                       1 - (embedding <=> $1::vector) as similarity
                 FROM {self.table_name}
                 {filter_clause}
-                ORDER BY embedding <=> $1
-                LIMIT $2
+                ORDER BY embedding <=> $1::vector
+                LIMIT ${len(filter_params) + 2}
                 """,
-                query_embedding,
-                top_k,
+                str(query_embedding),
                 *filter_params,
+                top_k,
             )
 
         return [
             {
-                "id": row["id"],
-                "text": row["text"],
-                "score": row["similarity"],
-                "metadata": row["metadata"],
+                "id": str(row["id"]),
+                "text": row["content"],
+                "score": float(row["similarity"]) if row["similarity"] is not None else 0.0,
+                "metadata": {
+                    "report_id": str(row["report_id"]),
+                    "chunk_index": row["chunk_index"],
+                    "start_page": row["page_start"],
+                    "end_page": row["page_end"],
+                    "section_title": row["section_title"],
+                    **(json.loads(row["metadata"]) if isinstance(row["metadata"], str) else (row["metadata"] or {})),
+                },
             }
             for row in rows
         ]
 
-    async def delete(self, ids: list[str]) -> None:
+    async def delete(self, ids: list[str], session: Any = None) -> None:
+        db_session = session or self.session
+        if db_session is not None:
+            from sqlalchemy import delete
+            from app.db.base import DocumentChunk
+
+            stmt = delete(DocumentChunk).where(DocumentChunk.id.in_([str(i) for i in ids]))
+            await db_session.execute(stmt)
+            await db_session.commit()
+            return
+
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             await conn.execute(
-                f"DELETE FROM {self.table_name} WHERE id = ANY($1)",
-                ids,
+                f"DELETE FROM {self.table_name} WHERE id = ANY($1::uuid[])",
+                [str(i) for i in ids],
             )
 
-    async def get(self, id: str) -> VectorDocument | None:
+    async def get(self, id: str, session: Any = None) -> VectorDocument | None:
+        db_session = session or self.session
+        if db_session is not None:
+            from app.db.base import DocumentChunk
+
+            chunk = await db_session.get(DocumentChunk, str(id))
+            if chunk:
+                return VectorDocument(
+                    id=str(chunk.id),
+                    text=chunk.content,
+                    embedding=chunk.embedding,
+                    metadata={
+                        "report_id": str(chunk.report_id),
+                        "chunk_index": chunk.chunk_index,
+                        "start_page": chunk.page_start,
+                        "end_page": chunk.page_end,
+                        "section_title": chunk.section_title,
+                        **(chunk.metadata_ or {}),
+                    },
+                )
+            return None
+
         pool = await self._get_pool()
+        import json
+
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
-                f"SELECT id, text, embedding, metadata FROM {self.table_name} WHERE id = $1",
-                id,
+                f"""SELECT id, content, embedding, metadata, report_id,
+                           chunk_index, page_start, page_end, section_title
+                    FROM {self.table_name} WHERE id = $1::uuid""",
+                str(id),
             )
             if row:
+                extra_meta = json.loads(row["metadata"]) if isinstance(row["metadata"], str) else (row["metadata"] or {})
                 return VectorDocument(
-                    id=row["id"],
-                    text=row["text"],
+                    id=str(row["id"]),
+                    text=row["content"],
                     embedding=row["embedding"],
-                    metadata=row["metadata"],
+                    metadata={
+                        "report_id": str(row["report_id"]),
+                        "chunk_index": row["chunk_index"],
+                        "start_page": row["page_start"],
+                        "end_page": row["page_end"],
+                        "section_title": row["section_title"],
+                        **extra_meta,
+                    },
                 )
         return None
 

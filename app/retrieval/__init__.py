@@ -1,5 +1,9 @@
 from app.retrieval.bm25 import BM25Document, BM25Retriever, create_bm25_retriever
 from app.retrieval.dense_retriever import DenseDocument, DenseRetriever, create_dense_retriever
+from app.retrieval.embedding_pipeline import (
+    EmbeddingPipeline,
+    create_embedding_pipeline,
+)
 from app.retrieval.embeddings import (
     EmbeddingProvider,
     OpenAIEmbedding,
