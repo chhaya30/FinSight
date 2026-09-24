@@ -81,3 +81,42 @@ class RiskExtractionResponse(BaseModel):
     risks_extracted: int
     risks: list[RiskItemResponse]
     processing_time_seconds: float
+
+
+class RiskEvidence(BaseModel):
+    """Structured evidence representation preserving source document traceability."""
+
+    document_id: str | None = None
+    report_year: int | None = None
+    page: int | None = Field(None, ge=1)
+    chunk_id: str | None = None
+    text: str = ""
+    section: str | None = None
+    text_hash: str | None = None
+    char_start: int | None = None
+    char_end: int | None = None
+    context_before: str | None = None
+    context_after: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class NormalizedRisk(BaseModel):
+    """Canonical representation of an extracted risk across report years."""
+
+    risk_id: str
+    company_id: str | None = None
+    report_id: str | None = None
+    report_year: int = Field(..., ge=1900, le=2100)
+    category: str = "Uncategorized"
+    title: str
+    description: str
+    severity: str | None = None
+    likelihood: str | None = None
+    impact: str | None = None
+    drivers: list[str] | None = Field(default_factory=list)
+    affected_areas: list[str] | None = Field(default_factory=list)
+    evidence: RiskEvidence | None = None
+    source_page: int | None = Field(None, ge=1)
+    confidence_score: float = Field(0.8, ge=0.0, le=1.0)
+    embedding: list[float] | None = None
+    extra_metadata: dict[str, Any] = Field(default_factory=dict)

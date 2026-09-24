@@ -6,7 +6,18 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.middleware.error_handler import add_error_handlers
 from app.api.middleware.logging import LoggingMiddleware
-from app.api.routes import analysis, companies, comparison, documents, health, reports, risks
+from app.api.routes import (
+    analysis,
+    companies,
+    comparison,
+    dashboard,
+    documents,
+    explainability,
+    financial_health,
+    health,
+    reports,
+    risks,
+)
 from app.config.logging import get_logger, setup_logging
 from app.config.settings import get_settings
 from app.db.session import close_db, init_db
@@ -57,6 +68,17 @@ def create_app() -> FastAPI:
     app.include_router(companies.router, prefix="/api/v1/companies", tags=["companies"])
     app.include_router(risks.router, prefix="/api/v1/risks", tags=["risks"])
     app.include_router(comparison.router, prefix="/api/v1/comparison", tags=["comparison"])
+    app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["dashboard"])
+    app.include_router(
+        explainability.router,
+        prefix="/api/v1/explainability",
+        tags=["explainability"],
+    )
+    app.include_router(
+        financial_health.router,
+        prefix="/api/v1/financial-health",
+        tags=["financial-health"],
+    )
     app.include_router(reports.router, prefix="/api/v1/reports", tags=["reports"])
 
     return app
