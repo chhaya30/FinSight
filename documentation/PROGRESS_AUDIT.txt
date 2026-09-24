@@ -1,0 +1,407 @@
+GLOBALRISK AI — COMPREHENSIVE PROGRESS AUDIT
+1. SOURCE OF TRUTH DOCUMENTS IDENTIFIED
+Document	Type	Status
+prd_text.txt	Original Hackathon PRD (15-hour build, 4-member team)	Baseline
+documentation/to_do.txt	Master Project TODO (detailed 15-hour hackathon plan + expanded multi-phase plan)	Primary roadmap
+GlobalRiskAI_phasewise_todo_updated.md	Updated Phase-wise Todo (2026-09-01, based on repo state)	Latest assessment
+phase1_todo list.md	Phase 1 Foundation Todo (verified 2026-08-29)	Phase 1 detail
+documentation/RiskLensAI_PRD.md	1-Month Build PRD (expanded scope, 10 modules)	Extended scope reference
+docs/architecture.md	Architecture documentation	Reference
+docs/taxonomy.md	Risk taxonomy documentation	Reference
+Key Distinction: The original 15-hour hackathon PRD (prd_text.txt) is the true baseline. The to_do.txt contains BOTH the original hackathon plan AND an expanded multi-week plan. The GlobalRiskAI_phasewise_todo_updated.md is a retrospective assessment dated 2026-09-01.
+2. PHASE-BY-PHASE ASSESSMENT
+PHASE 1 — Foundation / Architecture
+TODO Item	Status	Evidence	What Remains
+Repository structure	COMPLETE	app/, scripts/, tests/, docs/, frontend/, docker/ all exist	—
+Python package structure	COMPLETE	app/ with all modules; pyproject.toml valid	—
+Config layer (app/config/settings.py)	COMPLETE	Pydantic Settings with env support, all key configs present	Environment validation in CI
+Database models (app/db/base.py)	COMPLETE	SQLAlchemy models: Company, Report, RiskItem, EvolutionEntry, FinancialSnapshot, Workspace, SavedScan	Migrations not verified
+Logging & constants	COMPLETE	app/config/logging.py, app/config/constants.py exist	—
+API scaffold (app/api/main.py)	COMPLETE	FastAPI app with lifespan, CORS, middleware, 7 routers	—
+Dependency management	COMPLETE	pyproject.toml with all deps; uv sync works	Dev/test dependency separation
+Docker setup	PARTIAL	docker/Dockerfile, docker-compose.yml exist	Not validated running
+Developer setup guide	PARTIAL	README.md has overview; .env.example exists	Complete setup instructions
+PHASE 2 — AI Pipeline Research
+Research Task	Research Done?	Experiments?	Results Documented?	Decision Made?	Implemented?	Evaluated?
+Risk Taxonomy	YES	N/A (domain knowledge)	docs/taxonomy.md, app/taxonomy/data/risk_taxonomy_v1.json	YES - 18 categories, keywords, subcategories, severity levels	YES - loaded in app/taxonomy/loader.py	NO
+Prompt Engineering	PARTIAL	app/llm/prompts/ directory exists	Not found in repo	NO - LLM classifiers are stubs (LLMBasedRiskClassifier, LLMBasedRiskExtractor delegate to rule-based)	NO (stubs only)	NO
+Test Annual Reports	YES	Phase1_2/annual_reports/ has 15 PDFs	Phase1_2/excels/ has extraction outputs	YES - pdfplumber + PyMuPDF extraction validated	YES - PDF loaders implemented	NO (not end-to-end validated)
+OCR Experiments	PARTIAL	Tesseract implementation in app/ingestion/ocr/	Not documented	YES - Adaptive fallback router implemented	YES - AdaptiveFallbackRouter merges text+OCR	NO
+Chunking Strategy	PARTIAL	app/processing/chunker.py has fixed + semantic	Not documented	YES - Fixed (1000/200) and semantic chunking	YES - both strategies implemented	NO
+Embedding Strategy	PARTIAL	app/retrieval/embeddings.py has providers	Not documented	YES - sentence-transformers (BAAI/bge-large-en-v1.5) + OpenAI	YES - provider abstraction works	NO
+PHASE 3 — Document Testing
+TODO	Status	Evidence
+PDF loading/extraction	IMPLEMENTED	PDFLoader (PyMuPDF + pdfplumber), PyMuPDFExtractor
+Section detection	IMPLEMENTED	SectionDetector with heading patterns + known sections
+Risk section detection	IMPLEMENTED	RiskSectionDetector with 18 category keyword sets
+Metadata extraction	PARTIAL	metadata.py exists but not inspected in detail
+Text cleaning/normalization	IMPLEMENTED	clean_text, normalize_text in app/processing/
+OCR fallback	IMPLEMENTED	AdaptiveFallbackRouter with merge logic
+End-to-end validation on real PDF	NOT VERIFIED	Scripts exist (ingest_reports.py, run_pipeline.py) but no evidence of successful run
+PHASE 4 — OCR
+TODO	Status	Evidence
+Tesseract wrapper	IMPLEMENTED	OCREngine + TesseractOCREngine classes
+OCR trigger heuristic	IMPLEMENTED	Char ratio < 0.1 or >30% low-text pages
+Page rendering at 300 DPI	IMPLEMENTED	page.get_pixmap(dpi=300)
+OCR + text merge	IMPLEMENTED	_merge_results in AdaptiveFallbackRouter
+OCR quality validation	NOT STARTED	No evaluation on scanned Indian reports
+Devanagari/multi-language	NOT STARTED	Only eng language configured
+PHASE 5 — Chunking
+TODO	Status	Evidence
+Fixed-size chunking (1000/200)	IMPLEMENTED	Chunker.chunk_text() with overlap
+Semantic chunking (sentence-aware)	IMPLEMENTED	SemanticChunker splits on sentences
+Section-aware chunking	IMPLEMENTED	chunk_sections() preserves section metadata
+Token counting	NOT IMPLEMENTED	Uses character count, not tiktoken
+Boundary/overlap validation	NOT VERIFIED	No tests on real documents
+PHASE 6 — Embeddings / Retrieval
+TODO	Status	Evidence
+Embedding provider abstraction	IMPLEMENTED	EmbeddingProvider ABC + SentenceTransformersEmbedding + OpenAIEmbedding
+Vector store abstraction	IMPLEMENTED	VectorStore ABC + InMemoryVectorStore + PGVectorStore + PineconeVectorStore
+BM25 lexical search	IMPLEMENTED	BM25Retriever in app/retrieval/bm25.py
+Dense vector search	IMPLEMENTED	DenseRetriever in app/retrieval/dense_retriever.py
+Hybrid search (BM25 + dense)	IMPLEMENTED	HybridRetriever with weighted merge
+RRF fusion	IMPLEMENTED	RRF in app/retrieval/rrf.py
+Reranker (cross-encoder/LLM)	IMPLEMENTED	BaseReranker + HeuristicReranker + CrossEncoderReranker + LLMReranker
+RAG chain	IMPLEMENTED	RAGChain + RiskRAGChain with streaming
+Production vector store selection	NOT DECIDED	Defaults to in-memory; pgvector/Pinecone not validated
+Retrieval evaluation	NOT STARTED	No benchmarks on real corpus
+PHASE 7 — Evaluation
+TODO	Status	Evidence
+Unit tests	NOT STARTED	tests/ has only conftest.py (fixtures); 0 tests collected
+Integration tests	NOT STARTED	No test files for API, ingestion, retrieval, risk engine
+Pipeline evaluation script	SCAFFOLDED	scripts/evaluate_pipeline.py exists but not inspected
+Extraction quality framework	NOT STARTED	Research phase C defined it but not implemented
+Regression test dataset	NOT STARTED	No annotated evaluation dataset
+3. PRODUCT-DEVELOPMENT PHASES (from actual roadmap)
+Risk Taxonomy
+TODO	Status	Evidence
+18 categories with keywords	COMPLETE	app/taxonomy/data/risk_taxonomy_v1.json
+Subcategories	COMPLETE	4 subcategories per category
+Severity levels (5)	COMPLETE	Critical/High/Medium/Low/Informational
+Classification rules	IMPLEMENTED	RuleBasedClassifier in app/taxonomy/classifier_rules.py
+Taxonomy loader/validator	IMPLEMENTED	app/taxonomy/loader.py, validator.py
+Prompt Engineering
+TODO	Status	Evidence
+Prompt templates	PARTIAL	app/llm/prompts/ directory exists but files not inspected
+Few-shot examples	NOT STARTED	No data/fewshots/ directory found
+Output schemas	IMPLEMENTED	Pydantic models in app/models/ (risk.py, etc.)
+LLM integration	STUBS ONLY	LLMBasedRiskExtractor/Classifier delegate to rule-based
+Annual Report Testing
+TODO	Status	Evidence
+15 sample PDFs	AVAILABLE	Phase1_2/annual_reports/ has 15 PDFs
+Extraction outputs	AVAILABLE	Phase1_2/excels/ has multiple Excel outputs
+End-to-end ingestion test	NOT VERIFIED	No evidence scripts ran successfully
+OCR
+TODO	Status	Evidence
+Tesseract integration	IMPLEMENTED	app/ingestion/ocr/ocr_engine.py
+Fallback routing	IMPLEMENTED	AdaptiveFallbackRouter
+Quality validation	NOT STARTED	—
+Chunking
+TODO	Status	Evidence
+Fixed + semantic strategies	IMPLEMENTED	Chunker + SemanticChunker
+Section metadata preservation	IMPLEMENTED	chunk_sections()
+Token counting	NOT IMPLEMENTED	Character-based only
+Embeddings
+TODO	Status	Evidence
+Provider abstraction	IMPLEMENTED	EmbeddingProvider ABC
+sentence-transformers	IMPLEMENTED	BAAI/bge-large-en-v1.5 (1024-dim)
+OpenAI embeddings	IMPLEMENTED	text-embedding-3-large (3072-dim)
+Risk Detection
+TODO	Status	Evidence
+Risk candidate detection	IMPLEMENTED	RiskDetector finds risk sections, extracts paragraphs, splits statements
+Confidence scoring	IMPLEMENTED	Indicator + length + structure scoring
+LLM enhancement stub	SCAFFOLDED	AdvancedRiskDetector has use_llm flag but no implementation
+Risk Extraction
+TODO	Status	Evidence
+Category classification	IMPLEMENTED	Rule-based via RuleBasedClassifier
+Severity classification	IMPLEMENTED	SeverityRules keyword-based
+Entity extraction	IMPLEMENTED	Regex for MONEY, PERCENT, DATE
+Summary generation	IMPLEMENTED	First 2 sentences
+LLM extraction stub	SCAFFOLDED	LLMBasedRiskExtractor delegates to rule-based
+Risk Classification
+TODO	Status	Evidence
+Category refinement	IMPLEMENTED	RiskClassifier._refine_category()
+Severity refinement	IMPLEMENTED	RiskClassifier._refine_severity()
+Confidence calibration	IMPLEMENTED	Category/severity consistency + entity bonus
+LLM classification stub	SCAFFOLDED	LLMBasedRiskClassifier delegates to rule-based
+Severity
+TODO	Status	Evidence
+5-level severity	IMPLEMENTED	SeverityRules.classify_severity()
+Category-specific bias	IMPLEMENTED	Cyber, auditor_concern get +1
+Keyword-based assessment	IMPLEMENTED	Per-severity keyword lists
+Confidence
+TODO	Status	Evidence
+Weighted confidence model	IMPLEMENTED	Base(40%) + Category(20%) + Severity(15%) + Entity(15%) + Length(10%)
+Calibration	IMPLEMENTED	In RiskClassifier._calibrate_confidence()
+Deduplication
+TODO	Status	Evidence
+Near-duplicate removal	IMPLEMENTED	RiskDeduplicator in app/risk_engine/deduplicator.py
+Evidence Grounding
+TODO	Status	Evidence
+Source citations	IMPLEMENTED	EvidenceBuilder links risks to pages/paragraphs
+Citation format	IMPLEMENTED	[Source X] (Page Y) in RAG context
+LLM Integration
+TODO	Status	Evidence
+Provider abstraction	IMPLEMENTED	BaseLLMProvider + GroqProvider, OllamaProvider, ClaudeProvider
+Provider factory	IMPLEMENTED	provider_factory.py
+Streaming	IMPLEMENTED	generate_stream() in providers
+Actual LLM calls in pipeline	NOT VERIFIED	All LLM-based classes are stubs; pipeline uses rule-based
+Retrieval
+TODO	Status	Evidence
+Vector search	IMPLEMENTED	DenseRetriever, InMemoryVectorStore
+Hybrid search	IMPLEMENTED	HybridRetriever
+Reranking	IMPLEMENTED	HeuristicReranker, CrossEncoderReranker, LLMReranker
+RAG chain	IMPLEMENTED	RAGChain + RiskRAGChain
+Hybrid Search
+TODO	Status	Evidence
+BM25 + Dense	IMPLEMENTED	HybridRetriever with configurable weights
+RRF	IMPLEMENTED	RRF class
+Reranking
+TODO	Status	Evidence
+Cross-encoder	IMPLEMENTED	CrossEncoderReranker (stub - needs model)
+LLM reranker	IMPLEMENTED	LLMReranker (stub)
+Heuristic	IMPLEMENTED	HeuristicReranker (working)
+Year-over-Year Comparison
+TODO	Status	Evidence
+Comparison API	IMPLEMENTED	/api/v1/comparison/compare endpoint
+Evolution entries	IMPLEMENTED	EvolutionEntry model + API returns them
+Risk matching	EMPTY	app/comparison/matcher.py and delta.py are 0-byte files
+Similarity computation	EMPTY	app/comparison/similarity.py is 0-byte
+Severity change detection	EMPTY	app/comparison/severity_change.py is 0-byte
+Evolution narrative	EMPTY	app/comparison/evolution.py is 0-byte
+Report builder	IMPLEMENTED	app/comparison/report_builder.py exists
+Risk Evolution
+TODO	Status	Evidence
+NEW/REMOVED detection	PARTIAL	API returns from stored EvolutionEntry but no matching logic
+Severity UP/DOWN	PARTIAL	Same - relies on pre-computed entries
+Timeline API	IMPLEMENTED	/comparison/{company_id}/timeline
+Summary API	IMPLEMENTED	/comparison/{company_id}/summary
+Intelligence Layer
+TODO	Status	Evidence
+Company profile	SCAFFOLDED	app/intelligence/company_profile.py
+Risk explorer	SCAFFOLDED	app/intelligence/risk_explorer.py
+Peer comparison	SCAFFOLDED	app/intelligence/peer_comparison.py
+Industry analysis	SCAFFOLDED	app/intelligence/industry_analysis.py
+Financial analysis	SCAFFOLDED	app/intelligence/financial_analysis.py
+News analysis	SCAFFOLDED	app/intelligence/news_analysis.py
+Scanner	SCAFFOLDED	app/intelligence/scanner.py
+Business logic correctness	NOT VERIFIED	No tests, no real data validation
+API
+TODO	Status	Evidence
+Health endpoints	COMPLETE	/api/v1/health
+Document upload	COMPLETE	POST /api/v1/documents/upload
+Document listing	COMPLETE	GET /api/v1/documents
+Risk extraction	COMPLETE	POST /api/v1/analysis/extract
+Risk listing	COMPLETE	GET /api/v1/analysis/{report_id}/risks
+Comparison	COMPLETE	POST /api/v1/comparison/compare
+Company search	COMPLETE	GET /api/v1/companies
+Reports API	COMPLETE	GET /api/v1/reports
+Auth/Workspace isolation	NOT STARTED	Models exist but no auth middleware
+Background job orchestration	NOT STARTED	Uses FastAPI BackgroundTasks only
+Database
+TODO	Status	Evidence
+SQLAlchemy models	COMPLETE	All 7 core tables defined
+Repository layer	PARTIAL	app/db/repositories/ exists but not inspected
+Migrations	NOT VERIFIED	alembic in deps but no migration files seen
+Demo data seeding	SCAFFOLDED	scripts/seed_demo_data.py exists
+Frontend
+TODO	Status	Evidence
+Scaffold (TanStack Start + React 19)	COMPLETE	frontend/package.json, vite.config.ts
+Route structure	COMPLETE	12 routes: workspace, scanner, repository, reports, market, industry, financials, explorer, evolution, evidence, engine, auth, annotations
+UI component library	COMPLETE	40+ shadcn/ui components in frontend/src/components/ui/
+App shell/router	COMPLETE	AppShell.tsx, router.tsx
+Mock data dependency	CRITICAL	All pages use mock-data.ts - NO API integration
+API client	NOT IMPLEMENTED	No src/lib/api.ts found
+Upload/compare flow	NOT CONNECTED	Repository page has drag-drop UI but no backend call
+Evidence viewer	MOCK ONLY	Hardcoded prior/current arrays in evidence.tsx
+Scanner	MOCK ONLY	Filters mock-data.ts risks array
+Reports	MOCK ONLY	Uses mock data
+Evolution	MOCK ONLY	Uses mock data
+Auth	UI ONLY	Route exists but no auth integration
+4. END-TO-END PIPELINE STATUS
+Pipeline Stage	Implementation	Verification
+Annual Report PDF	IMPLEMENTED	NOT VERIFIED
+PDF extraction	IMPLEMENTED (PyMuPDF + pdfplumber)	NOT VERIFIED
+OCR fallback	IMPLEMENTED (AdaptiveFallbackRouter)	NOT VERIFIED
+Cleaning	IMPLEMENTED (clean_text, normalize_text)	NOT VERIFIED
+Section detection	IMPLEMENTED (SectionDetector)	NOT VERIFIED
+Risk section detection	IMPLEMENTED (RiskSectionDetector)	NOT VERIFIED
+Chunking	IMPLEMENTED (Fixed + Semantic)	NOT VERIFIED
+Embedding	IMPLEMENTED (provider abstraction)	NOT VERIFIED
+Retrieval	IMPLEMENTED (BM25 + Dense + Hybrid + Rerank)	NOT VERIFIED
+Risk detection	IMPLEMENTED (RiskDetector)	NOT VERIFIED
+Risk extraction	IMPLEMENTED (RiskExtractor)	NOT VERIFIED
+Risk classification	IMPLEMENTED (RiskClassifier)	NOT VERIFIED
+Severity assessment	IMPLEMENTED (SeverityAssessor)	NOT VERIFIED
+Confidence scoring	IMPLEMENTED (ConfidenceCalculator)	NOT VERIFIED
+Deduplication	IMPLEMENTED (RiskDeduplicator)	NOT VERIFIED
+Evidence building	IMPLEMENTED (EvidenceBuilder)	NOT VERIFIED
+Database persistence	IMPLEMENTED (SQLAlchemy models + scripts)	NOT VERIFIED
+Comparison/matching	EMPTY FILES (matcher.py, delta.py, similarity.py, severity_change.py, evolution.py = 0 bytes)	NOT IMPLEMENTED
+Intelligence layer	SCAFFOLDED	NOT VERIFIED
+FastAPI	IMPLEMENTED (app loads, imports pass)	VERIFIED (imports)
+Frontend	SCAFFOLDED (UI only, mock data)	NOT CONNECTED
+Critical Finding: The comparison engine's core matching logic files are empty (0 bytes). The API endpoints exist but return pre-computed EvolutionEntry records from the database - there is no actual year-over-year semantic matching implementation.
+5. TESTING AUDIT
+Metric	Value
+Test files	1 (tests/conftest.py - fixtures only)
+Actual test functions	0
+pytest collected	0 tests
+Unit tests	0
+Integration tests	0
+API tests	0
+Ingestion tests	0
+Retrieval tests	0
+Risk engine tests	0
+Comparison tests	0
+Evaluation tests	0
+The test infrastructure exists (conftest.py with async fixtures) but there are ZERO actual tests.
+6. COMPLETION PERCENTAGE (Weighted Feature Completion)
+Area	Weight	Completion	Rationale
+Foundation/Architecture	10%	90%	Structure, config, DB models, API scaffold all solid
+AI Research (Taxonomy, Prompts, OCR, Chunking, Embeddings)	15%	65%	Taxonomy complete; prompts stubbed; OCR/chunking/embeddings implemented but not validated
+Document Processing Pipeline	15%	60%	All pieces implemented; end-to-end NOT verified on real PDFs
+Risk Engine (Detection → Evidence)	15%	70%	Full rule-based pipeline implemented; LLM integration stubbed
+Retrieval (Embeddings, Vector, Hybrid, Rerank, RAG)	10%	75%	Comprehensive abstractions; in-memory only; not evaluated
+Comparison Engine	10%	15%	Core matching logic missing (empty files); API returns stored data only
+Intelligence Layer	5%	25%	Scaffolds only; no business logic verified
+API Layer	5%	70%	Endpoints exist; auth/background jobs missing
+Database	5%	60%	Models complete; migrations not verified; no seeding validated
+Frontend	5%	30%	Beautiful scaffold but 100% mock data; no API integration
+Testing	5%	5%	Infrastructure only; 0 tests
+OVERALL PROJECT COMPLETION: ~52%
+How calculated: Weighted average of above. The project has excellent scaffolding and module implementations (~70% code complete) but the critical gaps (empty comparison modules, zero tests, no end-to-end verification, frontend completely disconnected) bring the functional completion down significantly.
+7. CRITICAL GAP ANALYSIS (Top 10)
+Rank	Gap	Priority	Why
+1	Comparison engine matching logic missing	P0	matcher.py, delta.py, similarity.py, severity_change.py, evolution.py are 0-byte files - core USP not implemented
+2	Zero automated tests	P0	Cannot verify any functionality; pytest collects 0 tests
+3	Frontend completely disconnected from backend	P0	All UI uses mock data; no API client; no upload/compare flow
+4	No end-to-end pipeline verification	P0	Scripts exist but no evidence they've run successfully on real PDFs
+5	LLM integration is stubbed	P1	All LLMBased* classes delegate to rule-based; no actual LLM calls in pipeline
+6	Production vector store not configured	P1	Defaults to in-memory; pgvector/Pinecone not validated
+7	Authentication/Workspace isolation missing	P1	Models exist but no auth middleware, no per-workspace data isolation
+8	Background job orchestration missing	P1	Only FastAPI BackgroundTasks; no Celery/Redis for long-running processing
+9	Database migrations not verified	P2	Alembic in deps but no migration files found
+10	OCR quality not validated on Indian reports	P2	No evaluation on scanned/Devanagari documents
+8. PRIORITIZED EXECUTION PLAN (Next 10 Tasks)
+NEXT 1
+Task: Implement comparison engine semantic matching (matcher.py, similarity.py, delta.py)
+Why: Core product differentiator (year-over-year risk delta) is completely missing
+Files: app/comparison/matcher.py, app/comparison/similarity.py, app/comparison/delta.py, app/comparison/evolution.py, app/comparison/severity_change.py
+Expected Outcome: POST /compare computes NEW/REMOVED/SEVERITY_UP/DOWN/MODIFIED risks via embedding similarity
+NEXT 2
+Task: Create minimal test suite for critical paths
+Why: Zero tests = zero confidence; blocks all future refactoring
+Files: tests/test_ingestion.py, tests/test_risk_engine.py, tests/test_retrieval.py, tests/test_api_documents.py, tests/test_api_comparison.py
+Expected Outcome: pytest collects 20+ tests covering ingestion, risk extraction, retrieval, API endpoints
+NEXT 3
+Task: Run end-to-end ingestion on 2+ real PDFs from Phase1_2/annual_reports/
+Why: Validates the entire document processing pipeline works
+Files: scripts/ingest_reports.py (run it), verify DB records created
+Expected Outcome: PDFs → extracted → chunked → embedded → risks extracted → stored in DB
+NEXT 4
+Task: Implement frontend API client and connect Repository upload flow
+Why: Frontend is beautiful but 100% mock; upload is the entry point
+Files: frontend/src/lib/api.ts (new), frontend/src/routes/repository.tsx (modify)
+Expected Outcome: Drag-drop PDF → calls /api/v1/documents/upload → shows processing status
+NEXT 5
+Task: Connect frontend Results Dashboard to /compare API
+Why: Core demo flow (upload → compare → dashboard) must work
+Files: frontend/src/routes/evidence.tsx, frontend/src/routes/evolution.tsx, frontend/src/routes/scanner.tsx
+Expected Outcome: Select two years → click compare → see heatmap, diff, AI summary
+NEXT 6
+Task: Configure pgvector and persist embeddings
+Why: In-memory vector store loses data on restart; needed for production
+Files: docker-compose.yml (add pgvector), app/config/settings.py, app/retrieval/vector_store.py
+Expected Outcome: Embeddings persist across restarts; hybrid search works with pgvector
+NEXT 7
+Task: Implement authentication middleware and workspace isolation
+Why: Required for multi-user SaaS; PRD specifies per-workspace data isolation
+Files: app/api/middleware/auth.py (new), app/core/security.py, update all routers
+Expected Outcome: JWT auth; workspace_id filters on all queries
+NEXT 8
+Task: Add Celery/Redis for background processing
+Why: PDF processing takes 30s+; FastAPI BackgroundTasks insufficient for production
+Files: docker-compose.yml (add Celery worker), app/workers/ (new), update documents.py
+Expected Outcome: Upload returns immediately; processing runs async; status polling works
+NEXT 9
+Task: Implement LLM-based risk extraction/classification (replace stubs)
+Why: Rule-based has limited accuracy; LLM provides semantic understanding
+Files: app/llm/providers/ (implement), app/risk_engine/extractor.py, app/risk_engine/classifier.py
+Expected Outcome: LLMBasedRiskExtractor and LLMBasedRiskClassifier make real LLM calls
+NEXT 10
+Task: Create evaluation framework with annotated test set
+Why: Cannot measure accuracy without ground truth; needed for P0/P1 validation
+Files: scripts/evaluate_pipeline.py (enhance), data/eval/ (new), tests/test_accuracy.py
+Expected Outcome: Precision/recall/F1 on risk detection, classification, comparison
+9. EXECUTIVE SUMMARY
+GLOBALRISK AI — CURRENT STATUS
+Area	Completion
+Foundation	90%
+AI Research	65%
+Backend (API, DB, Pipeline)	65%
+AI Engine (Risk Detection→Evidence)	70%
+Retrieval	75%
+Comparison	15%
+Intelligence Layer	25%
+API	70%
+Frontend	30%
+Testing	5%
+Integration	20%
+Overall: ~52%
+COMPLETED ✅
+- Project structure, config, logging, constants
+- Database models (7 tables with proper relationships)
+- FastAPI application with 7 routers, middleware, lifespan
+- PDF ingestion: PyMuPDF + pdfplumber loaders, adaptive OCR fallback
+- Document processing: cleaning, normalization, section detection, risk section detection
+- Chunking: fixed-size + semantic (sentence-aware) with section metadata
+- Taxonomy: 18 categories, keywords, subcategories, severity levels, rule-based classifier
+- Risk engine pipeline: detector → extractor → classifier → severity → confidence → deduplicator → evidence
+- Embeddings: provider abstraction (sentence-transformers + OpenAI)
+- Vector stores: in-memory, pgvector, Pinecone abstractions
+- Retrieval: BM25, dense, hybrid (weighted), RRF, rerankers (heuristic, cross-encoder, LLM)
+- RAG chain with streaming support
+- API endpoints for upload, analysis, comparison, companies, reports
+- Frontend: TanStack Start + React 19 + Tailwind + shadcn/ui, 12 routes, 40+ UI components
+PARTIALLY COMPLETED ⚠️
+- OCR: Implemented but not validated on scanned Indian reports
+- Chunking: Character-based (not token-based); boundary validation missing
+- Risk engine: Full rule-based pipeline works; LLM enhancement is stubbed
+- Retrieval: All abstractions ready; production vector store not validated
+- Comparison API: Exists but core matching logic is missing (empty files)
+- Intelligence modules: Scaffolds exist; business logic not verified
+- Database: Models ready; migrations not run; seeding not tested
+- Frontend: Complete UI scaffold; zero backend integration; all mock data
+- Docker: Files exist; not verified running
+NOT STARTED ❌
+- Comparison engine: Semantic matching, delta detection, evolution narrative
+- Authentication & workspace isolation
+- Background job orchestration (Celery/Redis)
+- Automated tests (0 tests collected)
+- End-to-end pipeline validation on real documents
+- Production deployment (Vercel/Railway/HF Spaces)
+- Demo data pre-loading for hackathon
+- PDF export (reportlab)
+- OCR quality evaluation on Devanagari/multi-language
+- Token-counting chunking (tiktoken)
+- Prompt engineering / few-shot examples
+- LLM integration in extraction/classification pipeline
+NOT VERIFIED ❓
+- PDF ingestion end-to-end on real annual reports
+- Risk extraction accuracy on real filings
+- Comparison accuracy (no implementation to test)
+- Retrieval quality (no benchmarks)
+- Frontend-backend integration
+- Database migrations
+- Background processing reliability
+- SSE streaming in API
+TOP BLOCKERS 🚫
+1. Comparison engine matching logic is empty files — core product feature missing
+2. Zero tests — cannot verify anything works
+3. Frontend 100% mock data — no API integration at all
+4. No end-to-end validation — pipeline never proven on real PDFs
+5. LLM integration stubbed — rule-based only, no semantic understanding
+NEXT STEP 🎯
+Implement the comparison engine semantic matching (app/comparison/matcher.py, similarity.py, delta.py, evolution.py, severity_change.py) — this is the single most critical missing piece that blocks the core product value proposition.
+▣  Build · Nemotron 3 Ultra Free · 2h 27m

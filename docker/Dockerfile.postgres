@@ -1,0 +1,14 @@
+FROM postgres:16
+
+# Install pgvector extension
+RUN apt-get update && apt-get install -y postgresql-16-pgvector && rm -rf /var/lib/apt/lists/*
+
+# Copy custom pg_hba.conf to data directory (will be copied on init)
+COPY pg_hba.conf /pg_hba.conf.custom
+
+# Copy entrypoint script
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
+ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["postgres"]

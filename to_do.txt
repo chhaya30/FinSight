@@ -1,0 +1,66 @@
+Detailed Priority-Wise Action Plan
+Phase 1: Comparison Engine (Week 1) — Highest Priority, Blocks Everything
+#	Task	File(s)	Effort	Dependencies
+1.1	Implement semantic risk matcher	app/comparison/matcher.py	1 day	Embeddings, risk_items table, vector store
+1.2	Cosine similarity with thresholds	app/comparison/similarity.py	0.5 day	Embeddings
+1.3	Delta classification (NEW/REMOVED/SEVERITY_UP/DOWN/MODIFIED)	app/comparison/delta.py	1 day	Matcher, similarity
+1.4	Severity change detection	app/comparison/severity_change.py	0.5 day	Delta
+1.5	Narrative evolution generation	app/comparison/evolution.py	1 day	LLM provider (stub OK for now)
+Deliverable: /api/v1/comparison/compare returns real risk deltas between two documents.
+Phase 2: E2E Pipeline Validation (Week 1-2)
+#	Task	Command/Action
+2.1	Fix pyproject.toml (duplicate keys blocking uv sync)	Edit TOML
+2.2	Run Alembic migrations	alembic upgrade head
+2.3	Ingest 2+ real PDFs from Phase1_2/annual_reports/	python scripts/ingest_reports.py
+2.4	Verify full pipeline: PDF → extract → chunk → embed → risk extract → store → compare	Manual + script
+Deliverable: 2+ companies × 2 years ingested, comparison API works on real data.
+Phase 3: Minimal Test Suite (Week 2)
+#	Test File	Coverage Target
+3.1	tests/test_ingestion.py	PDF parsing, OCR fallback, chunking
+3.2	tests/test_risk_engine.py	Detector, extractor, classifier, severity, confidence
+3.3	tests/test_retrieval.py	Embeddings, BM25, dense, hybrid, reranker
+3.4	tests/test_api_documents.py	Upload, list, status, reprocess
+3.5	tests/test_api_comparison.py	Compare, evolution, timeline, summary
+Target: 20+ passing tests. Run via pytest tests/ -v.
+Phase 4: Frontend-Backend Integration (Week 2-3)
+#	Task	File(s)
+4.1	Create API client	frontend/src/lib/api.ts
+4.2	Connect Repository upload (drag-drop → POST /documents/upload → polling)	Repository page
+4.3	Connect Results pages (Evidence, Evolution, Scanner) to /compare API	Results pages
+4.4	Remove all mock-data.ts imports	All route pages
+Deliverable: End-to-end demo flow works in browser.
+Phase 5: Production Hardening (Week 3-4)
+#	Task	What's Needed
+5.1	pgvector	Add to docker-compose.yml, set VECTOR_STORE_PROVIDER=pgvector
+5.2	Auth + workspace isolation	JWT middleware in app/api/middleware/auth.py, workspace_id filters on all queries
+5.3	Celery/Redis	Worker service in docker-compose, async job queue for ingestion
+5.4	LLM integration (replace stubs)	Implement actual calls in LLMBasedRiskExtractor/Classifier using provider factory
+5.5	Token-counting chunking	Add tiktoken to chunker for accurate token counts
+Phase 6: Demo Prep (Week 4)
+#	Task
+6.1	Pre-load 8 demo PDFs (4 companies × 2 years)
+6.2	Pre-generate comparison summaries for instant demo
+6.3	PDF export (reportlab) — ai/export.py + /export endpoint
+6.4	Deploy backend (Railway/HF Spaces) + frontend (Vercel)
+6.5	Demo script rehearsal + pitch deck + backup recording
+🔑 Clarifying Decisions Needed Before Starting
+Decision	Options	Recommendation
+Timeline	Hackathon (15 hrs) vs 1-month MVP	Changes scope drastically
+LLM Provider	Groq (fast, free), Claude (quality), Ollama (local)	Groq for speed, Claude for quality
+Vector Store	pgvector (self-hosted, free) vs Pinecone (managed)	pgvector — no external dependency
+Auth	Auth.js/Clerk (quick) vs Custom JWT (control)	Custom JWT — no external dependency
+Scope	Core comparison only vs include Intelligence modules (peer, financial, news)	Core comparison only for demo
+📋 Recommended Start Order
+Week 1: Phase 1 (Comparison Engine) + Phase 2.1-2.2 (env fix + migrations) in PARALLEL
+Week 1-2: Phase 2.3-2.4 (real PDF ingestion) 
+Week 2: Phase 3 (Tests) — can start once Phase 2.3 works
+Week 2-3: Phase 4 (Frontend integration) — can start once Phase 1 works
+Week 3-4: Phase 5 (Hardening) + Phase 6 (Demo prep)
+Questions for You
+1. Timeline: Is this for a hackathon (15 hrs) or the 1-month MVP?
+2. LLM Provider: Groq, Claude, or Ollama? (Affects Phase 1.5 & 5.4 implementation)
+3. Vector Store: pgvector (needs Docker) or Pinecone?
+4. Auth: Custom JWT or Clerk/Auth.js?
+5. Scope: Core comparison flow only, or include Intelligence modules for demo?
+Recommendation: Start with Phase 1 (Comparison Engine) + Phase 2.1-2.2 (env fix + migrations) in parallel — they're the foundation everything else builds on.
+Want me to draft detailed specs for the comparison engine implementation first?

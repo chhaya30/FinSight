@@ -97,7 +97,8 @@ class RiskAnalysisPipeline:
             },
         )
 
-        logger.info("pipeline_completed", document_id=document_id, **result.metadata)
+        metadata_for_log = {k: v for k, v in result.metadata.items() if k != "document_id"}
+        logger.info("pipeline_completed", document_id=document_id, **metadata_for_log)
         return result
 
     def run_on_chunks(self, chunks: list[TextChunk]) -> list[ExtractedRisk]:

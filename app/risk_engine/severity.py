@@ -59,7 +59,7 @@ class SeverityAssessor:
         if bias > 0:
             severity_order = list(SeverityLevel)
             current_idx = severity_order.index(SeverityLevel(base_severity))
-            new_idx = max(0, current_idx - bias)
+            new_idx = max(0, int(current_idx - bias))
             return severity_order[new_idx].value
 
         return base_severity

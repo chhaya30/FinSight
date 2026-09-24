@@ -14,14 +14,24 @@ class RiskSectionDetector:
         self.detector = BaseRiskSectionDetector()
 
     def find_risk_factors_section(self, sections: list[DocumentSection]) -> DocumentSection | None:
+        best_match = None
+        best_content_length = 0
+
         for section in sections:
             if self._is_risk_factors(section):
-                return section
+                content_length = len(section.content.strip())
+                if content_length > best_content_length:
+                    best_match = section
+                    best_content_length = content_length
             if section.subsections:
                 found = self.find_risk_factors_section(section.subsections)
                 if found:
-                    return found
-        return None
+                    content_length = len(found.content.strip())
+                    if content_length > best_content_length:
+                        best_match = found
+                        best_content_length = content_length
+
+        return best_match
 
     def _is_risk_factors(self, section: DocumentSection) -> bool:
         title_lower = section.title.lower()
@@ -32,6 +42,10 @@ class RiskSectionDetector:
             "material risks",
             "enterprise risks",
             "significant risks",
+            "firmwide risk",
+            "risk management",
+            "risk overview",
+            "risk summary",
         ]
         return any(kw in title_lower for kw in risk_factor_keywords)
 
