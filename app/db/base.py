@@ -2,8 +2,8 @@ from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, TypeDecorator, func, text
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 # pgvector is an optional dependency.  The column type is only materialised
@@ -53,7 +53,12 @@ class Company(Base, UUIDMixin, TimestampMixin):
     market_cap: Mapped[float | None] = mapped_column(nullable=True)
     listed_exchange: Mapped[str | None] = mapped_column(String(50), nullable=True)
     workspace_id: Mapped[str | None] = mapped_column(UUID(as_uuid=False), nullable=True, index=True)
-    extra_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True, default=dict)
+    extra_metadata: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=True,
+        default=dict,
+        server_default=text("'{}'"),
+    )
 
     # Relationships
     reports: Mapped[list["Report"]] = relationship(
@@ -62,6 +67,23 @@ class Company(Base, UUIDMixin, TimestampMixin):
 
     def __repr__(self) -> str:
         return f"<Company(id={self.id}, name={self.name}, sector={self.sector})>"
+
+
+class _ReportProcessingStatus(TypeDecorator[str]):
+    """Translate the app's completed/pending states to the deployed DB vocabulary."""
+
+    impl = String(50)
+    cache_ok = True
+
+    def process_bind_param(self, value: str | None, dialect) -> str | None:
+        if value == "completed":
+            return "processed"
+        if value == "pending":
+            return "queued"
+        return value
+
+    def process_result_value(self, value: str | None, dialect) -> str | None:
+        return "completed" if value == "processed" else value
 
 
 class Report(Base, UUIDMixin, TimestampMixin):
@@ -73,19 +95,32 @@ class Report(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         index=True,
     )
+    workspace_id: Mapped[str | None] = mapped_column(UUID(as_uuid=False), nullable=True, index=True)
     fiscal_year: Mapped[int] = mapped_column(nullable=False, index=True)
     upload_date: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        "uploaded_at", DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    report_type: Mapped[str] = mapped_column(String(100), nullable=False, default="annual_report")
+    title: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_file_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    document_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    uploaded_by: Mapped[str | None] = mapped_column(UUID(as_uuid=False), nullable=True)
     processing_status: Mapped[str] = mapped_column(
-        String(50), nullable=False, default="pending", index=True
+        _ReportProcessingStatus(), nullable=False, default="pending", index=True
     )
-    source_file: Mapped[str] = mapped_column(String(500), nullable=False)
-    source_file_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    pages: Mapped[int | None] = mapped_column(nullable=True)
+    source_file: Mapped[str | None] = mapped_column("source_file_path", Text, nullable=True)
+    source_file_hash: Mapped[str | None] = mapped_column("file_hash", String(64), nullable=True)
+    pages: Mapped[int | None] = mapped_column("page_count", nullable=True)
     file_size_bytes: Mapped[int | None] = mapped_column(nullable=True)
-    extra_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True, default=dict)
-    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    extra_metadata: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=True,
+        default=dict,
+        server_default=text("'{}'"),
+    )
+    error_message: Mapped[str | None] = mapped_column("processing_error", Text, nullable=True)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     company: Mapped["Company"] = relationship("Company", back_populates="reports", lazy="noload")

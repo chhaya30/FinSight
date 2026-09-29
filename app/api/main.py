@@ -15,8 +15,12 @@ from app.api.routes import (
     explainability,
     financial_health,
     health,
+    industry_intelligence,
+    market_intelligence,
     reports,
+    risk_explorer,
     risks,
+    scanner,
 )
 from app.config.logging import get_logger, setup_logging
 from app.config.settings import get_settings
@@ -79,7 +83,23 @@ def create_app() -> FastAPI:
         prefix="/api/v1/financial-health",
         tags=["financial-health"],
     )
+    app.include_router(
+        market_intelligence.router,
+        prefix="/api/v1/market-intelligence",
+        tags=["market-intelligence"],
+    )
+    app.include_router(
+        industry_intelligence.router,
+        prefix="/api/v1/industry-intelligence",
+        tags=["industry-intelligence"],
+    )
     app.include_router(reports.router, prefix="/api/v1/reports", tags=["reports"])
+    app.include_router(
+        risk_explorer.router,
+        prefix="/api/v1/risk-explorer",
+        tags=["risk-explorer"],
+    )
+    app.include_router(scanner.router, prefix="/api/v1/scanner", tags=["scanner"])
 
     return app
 

@@ -30,7 +30,9 @@ async def create_company(
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Company already exists")
 
-    db_company = Company(**company.model_dump())
+    company_data = company.model_dump()
+    company_metadata = company_data.pop("metadata", None)
+    db_company = Company(**company_data, extra_metadata=company_metadata)
     db.add(db_company)
     await db.commit()
     await db.refresh(db_company)

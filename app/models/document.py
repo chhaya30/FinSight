@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
 class PageContent(BaseModel):
@@ -37,7 +37,10 @@ class DocumentBase(BaseModel):
     source_file_hash: str | None = Field(None, max_length=64)
     pages: int | None = Field(None, ge=0)
     file_size_bytes: int | None = Field(None, ge=0)
-    metadata: dict[str, Any] | None = Field(default_factory=dict)
+    metadata: dict[str, Any] | None = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices("extra_metadata", "metadata"),
+    )
 
 
 class DocumentCreate(DocumentBase):

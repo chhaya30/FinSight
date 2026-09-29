@@ -151,8 +151,10 @@ async def upload_document(
 
     report = Report(
         company_id=company_id,
+        workspace_id=company.workspace_id,
         fiscal_year=fiscal_year,
         source_file=safe_filename,
+        source_file_name=file.filename,
         source_file_hash=file_hash,
         file_size_bytes=len(file_content),
         processing_status="pending",

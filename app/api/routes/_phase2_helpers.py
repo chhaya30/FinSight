@@ -9,7 +9,9 @@ from app.intelligence.financial_health import FinancialHealthService, FinancialS
 from app.models.financial_health import FinancialHealthAnalysis
 
 
-async def load_phase2_records(previous_report, current_report, previous_risks, current_risks):
+async def load_phase2_records(
+    previous_report, current_report, previous_risks, current_risks, include_financial=True
+):
     previous_normalized = [
         _normalize_risk(risk, previous_report) for risk in previous_risks
     ]
@@ -28,11 +30,16 @@ async def load_phase2_records(previous_report, current_report, previous_risks, c
         y1_year=previous_report.fiscal_year,
     )
     explanations = ExplainabilityService().explain_records(records)
-    financial = _load_financial_analysis(previous_report, current_report, records)
+    financial = (
+        _load_financial_analysis(previous_report, current_report, records)
+        if include_financial
+        else None
+    )
     return records, explanations, financial
 
 
 def _normalize_risk(risk, report):
+    risk_metadata = risk.extra_metadata or {}
     return RiskNormalizer().normalize(
         {
             "risk_id": str(risk.id),
@@ -48,6 +55,10 @@ def _normalize_risk(risk, report):
                 "report_year": report.fiscal_year,
                 "page": risk.source_page,
                 "text": risk.source_paragraph or risk.summary,
+                "metadata": {
+                    "source_url": risk_metadata.get("source_url") or report.source_url,
+                    "source_name": risk_metadata.get("source_name"),
+                },
             },
         },
         report.fiscal_year,

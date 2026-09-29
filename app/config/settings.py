@@ -60,6 +60,20 @@ class Settings(BaseSettings):
     PINECONE_INDEX: str = "globalrisk"
     PINECONE_ENVIRONMENT: str = "us-east-1"
 
+    MARKET_INTELLIGENCE_PROVIDER: str = "gdelt"
+    GDELT_DOC_API_URL: str = "https://api.gdeltproject.org/api/v2/doc/doc"
+    GDELT_MAX_RECORDS: int = Field(default=10, ge=1, le=50)
+    GDELT_TIMEOUT_SECONDS: float = Field(default=12.0, gt=0, le=30)
+    MARKET_NEWS_RSS_FALLBACK: bool = True
+    GOOGLE_NEWS_RSS_URL: str = "https://news.google.com/rss/search"
+    INDUSTRY_INTELLIGENCE_PROVIDER: str = "sec_edgar"
+    SEC_EDGAR_USER_AGENT: str | None = None
+    SEC_EDGAR_TICKERS_URL: str = "https://www.sec.gov/files/company_tickers_exchange.json"
+    SEC_EDGAR_SUBMISSIONS_URL: str = "https://data.sec.gov/submissions/CIK{cik}.json"
+    SEC_EDGAR_TIMEOUT_SECONDS: float = Field(default=12.0, gt=0, le=30)
+    SEC_EDGAR_PEER_CANDIDATES: int = Field(default=24, ge=1, le=50)
+    SEC_EDGAR_MAX_PEERS: int = Field(default=4, ge=1, le=10)
+
     CHUNK_SIZE: int = 1000
     CHUNK_OVERLAP: int = 200
     MAX_CHUNKS_PER_DOC: int = 500
