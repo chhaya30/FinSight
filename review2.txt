@@ -1,0 +1,81 @@
+Based on my analysis of all branches and the PRD, here's the detailed completion status:
+Branch Overview
+Branch	Key Features
+main	Core API (health, documents, analysis, companies, risks, comparison, reports)
+phase-2 (current)	+ dashboard, explainability, financial_health routes; comparison engine with matcher, normalizer, evolution
+remotes/origin/phase-3	+ market_intelligence, industry_intelligence, risk_explorer, scanner routes; external providers
+Project Completion: ~60% Overall (per phasewise audit)
+Phase 1 - Foundation & Data Pipeline (PRD: 0-3.5h) — ~65%
+PRD Requirement	Status
+Monorepo setup (FastAPI + scripts)	✅ Done
+PDF ingestion API (/upload)	✅ Skeleton exists
+pdfplumber + PyMuPDF extraction	✅ Implemented
+Section-aware splitting (Risk Factors, MD&A)	✅ Section detector exists
+512-token chunking with 50 overlap	✅ Chunker implemented
+FAISS vector index + persist	✅ Vector store exists
+Embeddings (all-MiniLM-L6-v2)	✅ Embedding provider abstraction
+Supabase schema (documents, chunks, companies, risk_snapshots)	✅ Models + repositories exist
+End-to-end PDF → chunk → embed → store validation	❌ NOT VERIFIED
+OCR fallback quality validation	❌ NOT DONE
+Full ingest contract (company/year/market/source metadata)	❌ NOT VALIDATED
+Phase 2 - Risk Delta Engine (PRD: 3.5-7h) — ~65%
+PRD Requirement	Status
+Compare engine: pairwise cosine similarity	✅ SemanticRiskMatcher implemented
+Risk classification: NEW (sim<0.4), REMOVED, AMPLIFIED	✅ RiskEvolutionClassifier with NEW/REMOVED/ESCALATED/DE_ESCALATED/MODIFIED/UNCHANGED
+Severity keyword dictionary	✅ Exists in classifier
+RAG chain (LangChain RetrievalQA)	✅ rag_chain.py exists
+LLM prompt template for explanations	✅ Prompt templates exist
+/compare API returning {new_risks, removed, amplified, llm_summary}	✅ Routes exist
+Ollama fallback (llama3:8b)	✅ LLM provider factory supports Ollama
+Unit tests for risk classification	✅ Tests exist (phase2_normalization_matching, phase2_evolution)
+Accuracy validation on real reports	❌ NOT CONFIRMED
+Production threshold tuning	❌ NOT DONE
+Phase 3 - Frontend Dashboard (PRD: 7-11.5h) — ~45%
+PRD Requirement	Status
+3-screen flow: Landing → Upload → Results	✅ Routes exist (index.tsx, upload implied)
+Risk score card (0-10) + delta summary	✅ Dashboard route exists
+Risk Heatmap (Recharts)	✅ Recharts in deps; dashboard route
+Side-by-side text diff (NEW=green, REMOVED=red, CHANGED=amber)	✅ Evidence/explorer routes
+LLM summary card with SSE streaming	✅ Explainability route; SSE middleware exists
+Company search autocomplete (NSE/BSE + SEC)	✅ Scanner/market routes
+Year selector slider	❓ Not confirmed in UI
+Loading states with progress indicators	❓ Partial
+Dark mode + responsive	✅ Tailwind + shadcn/ui configured
+End-to-end API integration (upload/compare/query)	❌ NOT WIRED
+Dashboard polish, charts, report surfaces	❌ INCOMPLETE
+Phase 4 - Polish, Demo & Deployment (PRD: 11.5-15h) — ~10%
+PRD Requirement	Status
+Pre-load 4 demo companies (Apple, Infosys, Tesla, Reliance)	❌ Scripts exist but not run
+Demo rehearsal (5×) + bottleneck fixes	❌ NOT DONE
+Export PDF Report (reportlab)	❌ Not implemented
+Error handling, timeouts, empty states	❌ Partial
+Deployment: Vercel (frontend) + Railway/HF Spaces (API)	❌ Docker files exist but not deployed
+3-min demo script + 6-slide deck	❌ NOT DONE
+90-sec screen recording backup	❌ NOT DONE
+Specific Remaining Work (Priority Order)
+Critical (blocks demo)
+1. Fix pyproject.toml duplicate key → run uv sync → pytest passes
+2. Validate one real PDF ingestion end-to-end (upload → extract → chunk → embed → store)
+3. Run full compare flow on 2 real reports → confirm risk deltas match expectations
+4. Wire frontend to backend APIs (upload, compare, query flows)
+5. Pre-load 4 demo company indexes (run ingestion scripts)
+High
+ 6. Tune similarity/severity thresholds on real data
+ 7. Implement PDF export (reportlab)
+ 8. Add SSE streaming for LLM summary in frontend
+ 9. Complete dashboard charts (heatmap, severity timeline)
+10. Responsive QA + accessibility pass
+Medium
+11. Authentication/authorization hardening
+12. Rate limiting + security headers
+13. CI/CD pipeline (GitHub Actions)
+14. Staging + production deployments
+15. Domain/SSL + monitoring
+Key Gaps vs PRD
+PRD Feature	Current State
+Cross-market (SEC + BSE/NSE) normalization	Scaffolding exists (normalizer.py), not validated
+Company search by ticker/name	Backend routes exist, frontend autocomplete partial
+"30-second AI comparison"	Not benchmarked; needs caching + pre-indexing
+Visual heatmap (judges' WOW factor)	Recharts ready, component not built
+Live PDF upload on stage	Upload endpoint exists, not tested end-to-end
+The backend architecture is solid (~70-90% scaffolding complete). The main gaps are end-to-end validation, frontend-backend integration, and demo preparation.

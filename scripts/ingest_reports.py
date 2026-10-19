@@ -23,6 +23,7 @@ async def ingest_reports(
     company_name: str,
     fiscal_year: int,
     sector: str = None,
+    file_name: str = None,
 ):
     settings = get_settings()
     setup_logging()
@@ -41,6 +42,8 @@ async def ingest_reports(
             await session.flush()
 
         pdf_files = list(directory.glob("*.pdf"))
+        if file_name:
+            pdf_files = [f for f in pdf_files if f.name == file_name]
         logger.info("found_pdfs", count=len(pdf_files))
 
         for pdf_file in pdf_files:
@@ -131,10 +134,11 @@ def main():
     parser.add_argument("company", type=str, help="Company name")
     parser.add_argument("year", type=int, help="Fiscal year")
     parser.add_argument("--sector", type=str, help="Company sector")
+    parser.add_argument("--file", type=str, help="Specific PDF file to process (optional)")
 
     args = parser.parse_args()
 
-    asyncio.run(ingest_reports(args.directory, args.company, args.year, args.sector))
+    asyncio.run(ingest_reports(args.directory, args.company, args.year, args.sector, args.file))
 
 
 if __name__ == "__main__":
