@@ -75,6 +75,9 @@ class FallbackRouter:
                 file_path=file_path,
                 total_pages=0,
                 file_size_bytes=file_path.stat().st_size if file_path.exists() else 0,
+                extraction_method="ocr_unavailable",
+                ocr_used=True,
+                processing_error="OCR_UNAVAILABLE",
             ),
             pages=[],
         )
@@ -156,10 +159,13 @@ class AdaptiveFallbackRouter(FallbackRouter):
             else:
                 merged_pages.append(PageContent(page_number=i + 1, text="", char_count=0))
 
-        return ExtractedDocument(
-            metadata=text_doc.metadata,
-            pages=merged_pages,
-        )
+        metadata = text_doc.metadata
+        if any(page.text.strip() for page in ocr_doc.pages):
+            metadata = ocr_doc.metadata
+        elif not any(page.text.strip() for page in merged_pages) and ocr_doc.metadata.processing_error:
+            metadata = ocr_doc.metadata
+
+        return ExtractedDocument(metadata=metadata, pages=merged_pages)
 
 
 def create_fallback_router(**kwargs) -> FallbackRouter:

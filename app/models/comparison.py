@@ -1,11 +1,13 @@
 from datetime import datetime
+from enum import Enum
 from typing import Any, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.config.constants import ChangeType
-from app.models.risk import RiskItemResponse
+from app.models.risk import RiskEvidence, RiskItemResponse
+
 
 
 class EvolutionEntryBase(BaseModel):
@@ -39,18 +41,35 @@ class ComparisonRequest(BaseModel):
     company_id: UUID
     year_current: int = Field(..., ge=1900, le=2100)
     year_previous: int = Field(..., ge=1900, le=2100)
-    similarity_threshold: float = Field(default=0.85, ge=0, le=1)
+    similarity_threshold: float = Field(default=0.70, ge=0, le=1)
+
+
+class RiskWithEvidence(BaseModel):
+    """Risk item with its associated evidence."""
+    risk: RiskItemResponse
+    evidence: RiskEvidence | None = None
+
+
+class EvidenceComparisonResponse(BaseModel):
+    """Both source excerpts for a selected year-over-year risk change."""
+
+    risk_id: UUID
+    change_type: str | None = None
+    previous_risk: RiskItemResponse | None = None
+    current_risk: RiskItemResponse | None = None
+    previous_evidence: RiskEvidence | None = None
+    current_evidence: RiskEvidence | None = None
 
 
 class ComparisonResponse(BaseModel):
     company_id: UUID
     year_current: int
     year_previous: int
-    new_risks: list[RiskItemResponse]
-    removed_risks: list[RiskItemResponse]
-    severity_increased: list[EvolutionEntryDetailResponse]
-    severity_decreased: list[EvolutionEntryDetailResponse]
-    modified_risks: list[EvolutionEntryDetailResponse]
+    new_risks: list[RiskWithEvidence]
+    removed_risks: list[RiskWithEvidence]
+    severity_increased: list[RiskWithEvidence]
+    severity_decreased: list[RiskWithEvidence]
+    modified_risks: list[RiskWithEvidence]
     total_changes: int
     ai_summary: str | None = None
     processing_time_seconds: float
@@ -74,3 +93,81 @@ class EvolutionSummary(BaseModel):
     top_new_categories: list[dict[str, Any]]
     top_removed_categories: list[dict[str, Any]]
     ai_narrative: str
+
+
+
+
+
+class EvolutionChangeType(str, Enum):
+    NEW = "NEW"
+    REMOVED = "REMOVED"
+    UNCHANGED = "UNCHANGED"
+    MODIFIED = "MODIFIED"
+    ESCALATED = "ESCALATED"
+    DE_ESCALATED = "DE-ESCALATED"
+
+
+class AttributeChange(BaseModel):
+    before: Any | None = None
+    after: Any | None = None
+
+
+class RiskEvolutionRecord(BaseModel):
+    """Detailed record of a risk's year-over-year evolution classification."""
+
+    year_1_risk_id: str | None = None
+    year_2_risk_id: str | None = None
+    report_id_prev: str | None = None
+    report_id_current: str | None = None
+    report_year_prev: int | None = None
+    report_year_current: int | None = None
+    change_type: EvolutionChangeType
+    match_confidence: float = Field(0.0, ge=0.0, le=1.0)
+    semantic_similarity: float = Field(0.0, ge=0.0, le=1.0)
+    severity_prev: str | None = None
+    severity_current: str | None = None
+    likelihood_prev: str | None = None
+    likelihood_current: str | None = None
+    impact_prev: str | None = None
+    impact_current: str | None = None
+    changed_attributes: dict[str, AttributeChange] = Field(default_factory=dict)
+    evidence_prev: RiskEvidence | None = None
+    evidence_current: RiskEvidence | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class EvolutionSummaryResult(BaseModel):
+    """Structured aggregate summary of Year-over-Year risk evolution."""
+
+    year_1: int
+    year_2: int
+    total_year_1_risks: int
+    total_year_2_risks: int
+    new_count: int = 0
+    removed_count: int = 0
+    unchanged_count: int = 0
+    modified_count: int = 0
+    escalated_count: int = 0
+    de_escalated_count: int = 0
+    records: list[RiskEvolutionRecord] = Field(default_factory=list)
+    by_status: dict[str, list[RiskEvolutionRecord]] = Field(default_factory=dict)
+
+
+class CandidateMatch(BaseModel):
+    """Candidate match record between a Year-2 risk and a Year-1 risk."""
+
+    year_1_risk_id: str
+    semantic_similarity: float = Field(..., ge=0.0, le=1.0)
+    match_confidence: float = Field(..., ge=0.0, le=1.0)
+    category_match: bool = False
+    title_similarity: float = 0.0
+    matching_signals: dict[str, Any] = Field(default_factory=dict)
+
+
+class RiskMatchResult(BaseModel):
+    """Semantic matching result for a single Year-2 risk against Year-1 candidates."""
+
+    year_2_risk_id: str
+    candidate_matches: list[CandidateMatch] = Field(default_factory=list)
+    best_match: CandidateMatch | None = None
+

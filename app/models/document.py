@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
 class PageContent(BaseModel):
@@ -21,6 +21,9 @@ class DocumentMetadata(BaseModel):
     file_path: Path
     total_pages: int = Field(..., ge=0)
     file_size_bytes: int = Field(..., ge=0)
+    extraction_method: str | None = None
+    ocr_used: bool = False
+    processing_error: str | None = None
 
 
 class ExtractedDocument(BaseModel):
@@ -37,7 +40,10 @@ class DocumentBase(BaseModel):
     source_file_hash: str | None = Field(None, max_length=64)
     pages: int | None = Field(None, ge=0)
     file_size_bytes: int | None = Field(None, ge=0)
-    metadata: dict[str, Any] | None = Field(default_factory=dict)
+    metadata: dict[str, Any] | None = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices("extra_metadata", "metadata"),
+    )
 
 
 class DocumentCreate(DocumentBase):
@@ -70,14 +76,18 @@ class DocumentListResponse(BaseModel):
 
 
 class DocumentUploadResponse(BaseModel):
-    document: DocumentResponse
-    message: str
+    document_id: UUID
+    company_id: UUID
+    report_year: int
+    status: str
 
 
 class DocumentProcessingStatus(BaseModel):
     document_id: UUID
     status: str
     progress: float | None = Field(None, ge=0, le=100)
+    chunks_created: int | None = None
+    risks_extracted: int | None = None
     message: str | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None

@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
 class CompanyBase(BaseModel):
@@ -11,7 +11,10 @@ class CompanyBase(BaseModel):
     market_cap: float | None = Field(None, ge=0)
     listed_exchange: str | None = Field(None, max_length=50)
     workspace_id: UUID | None = None
-    metadata: dict[str, Any] | None = Field(default_factory=dict)
+    metadata: dict[str, Any] | None = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices("extra_metadata", "metadata"),
+    )
 
 
 class CompanyCreate(CompanyBase):

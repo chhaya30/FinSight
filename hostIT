@@ -1,0 +1,310 @@
+# FinSight Hosting Guide
+
+This guide deploys:
+
+- Backend: FastAPI on Render
+- Database: PostgreSQL with pgvector (Render Postgres or another managed PostgreSQL provider)
+- Frontend: TanStack Start/Vite on Vercel
+
+The repository root is the backend. The frontend lives in `frontend/`.
+
+## 1. Before deployment
+
+Push the repository to GitHub and confirm that the production branch contains:
+
+- `app/`
+- `pyproject.toml`
+- `frontend/`
+- `app/db/migrations/005_core_schema_hardening.sql`
+- no real secrets committed to `.env` or `frontend/.env`
+
+Use Python 3.11 or newer. The project currently requires Python `>=3.11`.
+
+Important production limitations:
+
+- Uploaded PDFs are stored on the backend filesystem. Render filesystems are ephemeral unless a persistent disk is attached. Attach a persistent disk or move uploaded files to object storage before relying on production uploads.
+- Tesseract OCR is not installed by the normal Python dependency installation. OCR requires a custom Docker image or another OCR service. Regular text-based PDFs can work without it.
+- Use a production LLM provider such as Groq or OpenAI. Ollama on a normal Render web service will not be available unless separately hosted.
+- The database must support PostgreSQL and pgvector for the configured vector-store workflow.
+
+## 2. Create the production database
+
+1. Create a PostgreSQL database with your provider.
+2. Enable the `vector` extension if the provider supports pgvector.
+3. Copy the provider's internal connection string. Prefer the internal URL when the database and Render service are in the same region.
+4. Convert the URL if necessary:
+
+```text
+postgresql://user:password@host:5432/database
+```
+
+The application uses SQLAlchemy async PostgreSQL. The value normally needs this driver prefix:
+
+```text
+postgresql+asyncpg://user:password@host:5432/database
+```
+
+Do not commit the connection string.
+
+## 3. Apply the database schema
+
+Run the existing migrations against the production database before opening the application to users. Apply them in order, including:
+
+```text
+app/db/migrations/005_core_schema_hardening.sql
+```
+
+If using a local machine, use a PostgreSQL client or your provider's SQL console. Example with `psql`:
+
+```bash
+psql "YOUR_PRODUCTION_DATABASE_URL" -f app/db/migrations/005_core_schema_hardening.sql
+```
+
+Then run the audit against the production database:
+
+```bash
+DATABASE_URL="postgresql+asyncpg://..." python scripts/audit_data.py
+```
+
+Confirm that the migration and audit succeed before deploying the frontend.
+
+## 4. Deploy the backend to Render
+
+### Create the service
+
+1. Open Render and select **New > Web Service**.
+2. Connect the GitHub repository.
+3. Select the branch to deploy.
+4. Set the root directory to the repository root.
+5. Select Python as the runtime, or use the Docker option if OCR is required.
+
+Recommended native Python settings:
+
+```text
+Build Command: pip install .
+Start Command: uvicorn app.api.main:app --host 0.0.0.0 --port $PORT
+Health Check Path: /api/v1/health
+```
+
+If Render does not detect the Python version automatically, set the service runtime to Python 3.11 or newer. `pyproject.toml` is the dependency source.
+
+### Add Render environment variables
+
+Set these in Render's **Environment** tab. Use actual production values.
+
+```text
+APP_NAME=globalrisk-ai
+APP_VERSION=0.1.0
+DEBUG=false
+ENVIRONMENT=production
+API_HOST=0.0.0.0
+API_PORT=10000
+
+DATABASE_URL=postgresql+asyncpg://USER:PASSWORD@HOST:5432/DBNAME
+
+LLM_PROVIDER=groq
+GROQ_API_KEY=your-groq-key
+GROQ_MODEL=openai/gpt-oss-20b
+
+EMBEDDING_PROVIDER=sentence-transformers
+EMBEDDING_MODEL=BAAI/bge-large-en-v1.5
+EMBEDDING_DIMENSION=1024
+VECTOR_STORE_PROVIDER=pgvector
+
+CHUNK_SIZE=512
+CHUNK_OVERLAP=50
+MAX_CHUNKS_PER_DOC=500
+MAX_UPLOAD_SIZE_MB=100
+
+UPLOAD_DIR=/var/data/annual_reports
+EXTRACTED_DIR=/var/data/extracted
+PROCESSED_DIR=/var/data/processed
+
+OCR_ENABLED=false
+TESSERACT_CMD=tesseract
+
+SEC_EDGAR_USER_AGENT=YourCompany contact@example.com
+MARKET_INTELLIGENCE_PROVIDER=gdelt
+MARKET_NEWS_RSS_FALLBACK=true
+
+SECRET_KEY=generate-a-long-random-production-secret
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+REFRESH_TOKEN_EXPIRE_DAYS=7
+
+RISK_TAXONOMY_PATH=./app/taxonomy/data/risk_taxonomy_v1.json
+
+CORS_ORIGINS=["https://YOUR-VERCEL-DOMAIN.vercel.app"]
+```
+
+Replace the `DATABASE_URL` placeholder with the real URL. Do not include spaces in the password unless they are URL-encoded.
+
+### Persistent storage on Render
+
+If keeping filesystem uploads, add a Render persistent disk:
+
+1. Open the service's **Disks** section.
+2. Add a disk mounted at `/var/data`.
+3. Keep `UPLOAD_DIR`, `EXTRACTED_DIR`, and `PROCESSED_DIR` under `/var/data`.
+
+Without a persistent disk, uploaded files may disappear when the service restarts or redeploys. For a scalable deployment, replace local file storage with S3-compatible object storage and store only the object key in the database.
+
+### Verify the Render backend
+
+After deployment, note the backend URL, for example:
+
+```text
+https://finsight-api.onrender.com
+```
+
+Test:
+
+```bash
+curl https://finsight-api.onrender.com/api/v1/health
+curl https://finsight-api.onrender.com/api/v1/health/db
+curl https://finsight-api.onrender.com/docs
+```
+
+Expected health response includes a healthy application status. The database health endpoint must report that the database is connected.
+
+If the service fails to start, inspect Render logs for:
+
+- malformed `DATABASE_URL`
+- missing `GROQ_API_KEY` or another provider key
+- missing database extension
+- import/dependency errors
+- incorrect CORS JSON syntax
+
+## 5. Deploy the frontend to Vercel
+
+### Import the project
+
+1. Open Vercel and select **Add New > Project**.
+2. Import the same GitHub repository.
+3. Set the **Root Directory** to `frontend`.
+4. Use the detected framework or Vite/TanStack Start configuration.
+
+Recommended settings:
+
+```text
+Install Command: npm install
+Build Command: npm run build
+Output Directory: leave default/automatic
+```
+
+The frontend build has already been verified locally with `npm run build`.
+
+### Add the frontend environment variable
+
+In Vercel, add this variable for Production, Preview, and Development as appropriate:
+
+```text
+VITE_API_BASE_URL=https://finsight-api.onrender.com/api/v1
+```
+
+Redeploy after changing environment variables. Vite variables are compiled into the frontend build.
+
+### Deploy and note the URL
+
+After deployment, Vercel will provide a URL such as:
+
+```text
+https://finsight.vercel.app
+```
+
+Add this exact URL to Render's `CORS_ORIGINS` list, then redeploy the backend:
+
+```text
+CORS_ORIGINS=["https://finsight.vercel.app"]
+```
+
+For a custom domain, use the custom HTTPS domain instead of the `vercel.app` URL.
+
+## 6. End-to-end verification
+
+Run this checklist after both deployments:
+
+1. Open the Vercel frontend.
+2. Confirm the browser does not show CORS errors.
+3. Confirm companies load from the backend.
+4. Create or select a company.
+5. Upload a small text-based PDF.
+6. Confirm the upload returns a document ID.
+7. Confirm status polling changes from processing to completed.
+8. Confirm chunks and extracted risks are greater than zero.
+9. Confirm the document appears in the repository.
+10. Run a comparison for two completed reports.
+11. Confirm dashboard data and evidence load.
+12. Check Render logs and database records after the test.
+
+Example browser/API checks:
+
+```bash
+curl https://finsight-api.onrender.com/api/v1/companies
+curl https://finsight-api.onrender.com/api/v1/documents
+```
+
+For uploads, use the frontend because the endpoint requires multipart form data.
+
+## 7. Important integration checks before public launch
+
+The frontend API client and backend routes must be aligned before calling the deployment complete. Verify especially:
+
+- comparison evolution URL and method
+- evidence URL
+- dashboard risk-evolution route
+- financial-health route
+- market-intelligence route
+- scanner route
+- explainability route
+- report listing route
+
+A successful frontend build does not prove that every API request has a matching backend endpoint. Test every screen against the deployed API and fix any 404 or 500 responses.
+
+## 8. Production security checklist
+
+- Set `DEBUG=false`.
+- Use a strong random `SECRET_KEY`.
+- Never commit `.env`, API keys, database URLs, or uploaded PDFs.
+- Restrict `CORS_ORIGINS` to the real frontend domains.
+- Use HTTPS only.
+- Use a managed database with backups.
+- Set database connection pooling appropriate for the provider.
+- Configure upload size and rate limits.
+- Add authentication before exposing sensitive company data publicly.
+- Do not expose database or Redis ports publicly.
+- Review Render logs for secrets before sharing them.
+
+## 9. Updating the application
+
+Backend deployment:
+
+```bash
+git add app pyproject.toml scripts
+git commit -m "Update backend"
+git push origin main
+```
+
+Render redeploys from the configured branch. Apply any new database migration before using the new backend code.
+
+Frontend deployment:
+
+```bash
+git add frontend
+git commit -m "Update frontend"
+git push origin main
+```
+
+Vercel redeploys automatically. If a frontend environment variable changed, trigger a new deployment so Vite rebuilds the client.
+
+## 10. Recommended first production deployment order
+
+1. Create PostgreSQL and enable pgvector.
+2. Apply migrations.
+3. Run the data audit.
+4. Deploy Render backend.
+5. Verify health and database endpoints.
+6. Deploy Vercel frontend.
+7. Add the Vercel URL to backend CORS settings.
+8. Redeploy backend.
+9. Run one complete PDF upload and comparison.
+10. Fix API route mismatches before inviting users.

@@ -1,0 +1,566 @@
+The PDF pipeline has two parallel outcomes:
+
+1. It converts the PDF into searchable text chunks with embeddings.
+2. It analyzes the text for financial/risk disclosures and stores structured risks.
+
+High-level flow:
+
+```text
+PDF upload
+   ↓
+File validation + hashing + storage
+   ↓
+Background processing
+   ↓
+Text extraction with PyMuPDF
+   ↓
+OCR fallback for scanned/weak pages
+   ↓
+Text cleaning + normalization
+   ↓
+Page-wise text
+   ├── Chunking → embeddings → document_chunks / pgvector
+   └── Risk analysis → structured risk_items
+   ↓
+User query
+   ↓
+Query embedding
+   ↓
+Vector similarity search
+   ↓
+Optional reranking
+   ↓
+LLM answer with source citations
+```
+
+## 1. Upload stage
+
+The main API entry point is:
+
+[documents.py](C:/Users/riyas/OneDrive/Documents/sies_things/skills/FinSight/app/api/routes/documents.py)
+
+The endpoint is:
+
+```text
+POST /documents/upload
+```
+
+It receives:
+
+- PDF file
+- `company_id`
+- `fiscal_year`
+
+It then:
+
+1. Checks that the filename ends with `.pdf`.
+2. Reads the entire file into memory.
+3. Validates the maximum upload size.
+4. Calculates a SHA-256 hash.
+5. Rejects duplicate files if the hash already exists.
+6. Verifies that the company exists.
+7. Saves the file into `UPLOAD_DIR`.
+8. Creates a `Report` database row with status `pending`.
+9. Adds background processing using FastAPI `BackgroundTasks`.
+
+The initial response is returned immediately:
+
+```text
+Document uploaded successfully. Processing started in background.
+```
+
+The report status changes through:
+
+```text
+pending → processing → completed
+                         ↘ failed
+```
+
+The uploaded file itself is stored on disk. The database stores its filename, company, year, hash, size, status, and error message.
+
+## 2. Background processing
+
+The background function is:
+
+```python
+process_document_background(document_id)
+```
+
+It reloads the `Report`, marks it as `processing`, and finds the PDF using:
+
+```text
+UPLOAD_DIR / report.source_file
+```
+
+Then the document goes into the adaptive extraction router.
+
+## 3. PDF text extraction
+
+The entry point is:
+
+[fallback_router.py](C:/Users/riyas/OneDrive/Documents/sies_things/skills/FinSight/app/ingestion/ocr/fallback_router.py)
+
+The default router is `AdaptiveFallbackRouter`.
+
+Its behavior is:
+
+```text
+Try normal PDF extraction
+   ↓
+Measure amount of extracted text
+   ↓
+If text quality is sufficient → keep extracted text
+If text quality is poor → run OCR
+   ↓
+Merge normal text and OCR page by page
+```
+
+### Normal extraction
+
+The default loader is:
+
+[pdf_loader.py](C:/Users/riyas/OneDrive/Documents/sies_things/skills/FinSight/app/ingestion/loaders/pdf_loader.py)
+
+It uses PyMuPDF by default:
+
+```python
+page.get_text("text")
+```
+
+Each PDF page becomes a `PageContent` object:
+
+```python
+PageContent(
+    page_number=...,
+    text=...,
+    char_count=...
+)
+```
+
+The result is an `ExtractedDocument` containing:
+
+- filename
+- file path
+- page count
+- file size
+- list of page texts
+
+There is also a PDFPlumber path for more complex layouts and tables:
+
+[pdfplumber_extractor.py](C:/Users/riyas/OneDrive/Documents/sies_things/skills/FinSight/app/ingestion/extractors/pdfplumber_extractor.py)
+
+PDFPlumber can optionally extract tables and append them as text:
+
+```text
+[TABLES]
+--- Table 1 ---
+...
+```
+
+However, the current main upload path uses `PDFLoader`, which defaults to PyMuPDF.
+
+## 4. Scanned PDF detection
+
+The router estimates whether a PDF is scanned by calculating:
+
+```text
+total extracted characters
+--------------------------------
+number of pages × 1000
+```
+
+The default threshold is `0.1`.
+
+A document is considered weak if:
+
+- the overall character ratio is below `0.1`, or
+- more than 30% of pages contain fewer than 100 characters.
+
+This is implemented in:
+
+```python
+AdaptiveFallbackRouter._needs_ocr()
+```
+
+## 5. OCR fallback
+
+OCR is implemented in:
+
+[ocr_engine.py](C:/Users/riyas/OneDrive/Documents/sies_things/skills/FinSight/app/ingestion/ocr/ocr_engine.py)
+
+For each page:
+
+1. PyMuPDF renders the page as an image.
+2. The image is rendered at 300 DPI by default.
+3. The temporary PNG is sent to Tesseract.
+4. Tesseract returns recognized text.
+5. The temporary files are deleted.
+6. The OCR result becomes page text.
+
+The OCR result is also page-based.
+
+The adaptive router merges normal extraction and OCR:
+
+- If normal text has at least 100 characters, it is preferred.
+- Otherwise, OCR text is used.
+- If OCR fails, the original text is retained.
+- If both fail, an empty page is created.
+
+OCR is controlled by:
+
+```text
+OCR_ENABLED=True
+OCR_LANGUAGE=eng
+TESSERACT_CMD
+```
+
+## 6. Cleaning and normalization
+
+After extraction, every page goes through:
+
+```python
+clean_text(page)
+normalize_text(page)
+```
+
+This occurs in `documents.py`.
+
+Conceptually:
+
+```text
+raw PDF text
+   ↓
+clean_text()
+   ↓
+normalize_text()
+   ↓
+normalized page text
+```
+
+Cleaning generally removes unwanted artifacts such as excessive whitespace or malformed characters. Normalization standardizes the text for downstream chunking and risk analysis.
+
+The resulting structure is still a list of page strings:
+
+```python
+normalized_pages: list[str]
+```
+
+The code also calls `detect_sections()`, but the result is not directly used in the API background flow. The risk pipeline detects sections again internally.
+
+## 7. Chunking
+
+Chunking is handled by:
+
+[chunker.py](C:/Users/riyas/OneDrive/Documents/sies_things/skills/FinSight/app/processing/chunker.py)
+
+Default settings are:
+
+```text
+chunk size:       1000 characters
+chunk overlap:    200 characters
+minimum chunk:    100 characters
+maximum chunks:   500 per document
+```
+
+The default strategy is fixed-size chunking.
+
+The chunker:
+
+1. Takes the page text.
+2. Creates chunks up to approximately 1000 characters.
+3. Tries to break at punctuation or a newline.
+4. Adds 200 characters of overlap between chunks.
+5. Discards text shorter than the minimum chunk size.
+6. Assigns each chunk a hash.
+
+A chunk contains:
+
+- text
+- chunk index
+- start/end character offsets
+- start/end pages
+- section title
+- section level
+- hash
+- metadata
+
+There is also a semantic chunker that groups sentences together, but the embedding pipeline defaults to:
+
+```python
+strategy="fixed"
+```
+
+For page lists, the pipeline calls:
+
+```python
+chunk_document(text="", pages=text_or_pages, strategy=strategy)
+```
+
+## 8. Embedding generation
+
+Embedding orchestration is in:
+
+[embedding_pipeline.py](C:/Users/riyas/OneDrive/Documents/sies_things/skills/FinSight/app/retrieval/embedding_pipeline.py)
+
+The default embedding provider is configured as:
+
+```text
+provider: sentence-transformers
+model: BAAI/bge-large-en-v1.5
+dimension: 1024
+```
+
+The provider is implemented in:
+
+[embeddings.py](C:/Users/riyas/OneDrive/Documents/sies_things/skills/FinSight/app/retrieval/embeddings.py)
+
+For all chunks:
+
+```python
+embeddings = await embedding_provider.embed(texts)
+```
+
+The pipeline validates that every embedding has exactly the expected dimension.
+
+If the configured model produces the wrong dimension, ingestion fails with an embedding dimension mismatch.
+
+OpenAI embeddings are also supported, but the default configuration uses Sentence Transformers.
+
+## 9. Vector storage
+
+The main persistent table is:
+
+```text
+document_chunks
+```
+
+The model is defined in:
+
+[base.py](C:/Users/riyas/OneDrive/Documents/sies_things/skills/FinSight/app/db/base.py)
+
+Each chunk stores:
+
+- report ID
+- chunk index
+- content
+- token count
+- start page
+- end page
+- section title
+- embedding vector
+- metadata
+- chunk ID
+
+The database migration creates a pgvector embedding column with dimension 1024 and a vector similarity index.
+
+The embedding pipeline writes each chunk to PostgreSQL through SQLAlchemy.
+
+Metadata includes:
+
+```text
+report_id
+company_id
+fiscal_year
+chunk_index
+chunk_hash
+start_page
+end_page
+section_title
+embedding_model
+```
+
+The pipeline avoids reprocessing if chunks already exist for the report, unless `force_reprocess=True`.
+
+## 10. Risk-analysis pipeline
+
+After embedding storage, the API runs:
+
+```python
+pipeline = create_pipeline()
+result = pipeline.run(page_contents, document_id)
+```
+
+The implementation is:
+
+[pipeline.py](C:/Users/riyas/OneDrive/Documents/sies_things/skills/FinSight/app/risk_engine/pipeline.py)
+
+The sequence is:
+
+```text
+Pages
+  ↓
+Section detection
+  ↓
+Risk candidate detection
+  ↓
+Risk extraction
+  ↓
+Risk classification
+  ↓
+Severity assessment
+  ↓
+Confidence calculation
+  ↓
+Deduplication
+  ↓
+Evidence construction
+  ↓
+risk_items database rows
+```
+
+The pipeline creates structured `RiskItem` records containing:
+
+- category
+- severity
+- confidence score
+- summary
+- source page
+- source paragraph/text
+- source hash
+- extracted entities
+- metadata
+
+This is separate from vector search. The vector database is for semantic document retrieval; the risk table is for structured risk results.
+
+## 11. Completion
+
+If all processing succeeds:
+
+```python
+report.processing_status = "completed"
+report.pages = len(pages)
+```
+
+The report and risks are committed to the database.
+
+If anything fails:
+
+```python
+report.processing_status = "failed"
+report.error_message = str(e)
+```
+
+The failure is logged.
+
+## 12. Query and RAG pipeline
+
+The query path is implemented in:
+
+[rag_chain.py](C:/Users/riyas/OneDrive/Documents/sies_things/skills/FinSight/app/retrieval/rag_chain.py)
+
+The query flow is:
+
+```text
+User question
+   ↓
+Embed question
+   ↓
+Search document chunks by cosine similarity
+   ↓
+Take top 20 candidates
+   ↓
+Rerank them
+   ↓
+Keep top 5
+   ↓
+Build context
+   ↓
+Send context + question to LLM
+   ↓
+Return answer + sources
+```
+
+The query is embedded using the same embedding provider as the document chunks.
+
+The vector store can use:
+
+- PostgreSQL/pgvector
+- Pinecone
+- in-memory storage
+
+The configured default is pgvector.
+
+The pgvector store supports filters such as:
+
+```text
+company_id
+report_id
+fiscal_year
+```
+
+The result metadata includes page and section information, which is used for citations.
+
+The LLM is instructed to:
+
+- answer only from the supplied context
+- admit when there is insufficient information
+- cite sources using `[Source X]`
+
+Example generated context:
+
+```text
+[Source 1] (Page 42)
+The company is exposed to...
+
+[Source 2] (Page 87)
+Cybersecurity incidents could...
+```
+
+The final response should cite those sources as:
+
+```text
+[Source 1]
+[Source 2]
+```
+
+## 13. Important implementation difference
+
+There are two ingestion paths in the repository.
+
+### API upload path
+
+`process_document_background()` does:
+
+```text
+extract
+→ clean
+→ normalize
+→ chunk
+→ embed
+→ store document_chunks
+→ run risk analysis
+→ store risk_items
+```
+
+This is the complete path.
+
+### Batch script path
+
+[scripts/ingest_reports.py](C:/Users/riyas/OneDrive/Documents/sies_things/skills/FinSight/scripts/ingest_reports.py)
+
+The batch script currently does:
+
+```text
+extract
+→ clean
+→ normalize
+→ detect sections
+→ run risk analysis
+→ store risk_items
+```
+
+It does not call `create_embedding_pipeline()` or store `DocumentChunk` embeddings.
+
+That means reports ingested using `scripts/ingest_reports.py` may have risk records but may not be searchable through the vector/RAG pipeline.
+
+This is the biggest pipeline inconsistency in the current code.
+
+There is also a likely issue in:
+
+[scripts/run_pipeline.py](C:/Users/riyas/OneDrive/Documents/sies_things/skills/FinSight/scripts/run_pipeline.py)
+
+It uses `Path(...)` but does not import `Path`, so the script would fail unless that import is added.
+
+## In one sentence
+
+A PDF is uploaded and stored, -extracted page by page with PyMuPDF, OCR-corrected when necessary, cleaned and normalized, split into overlapping chunks, converted into 1024-dimensional embeddings and stored in pgvector, while a separate risk-analysis pipeline detects, classifies, scores, deduplicates, and stores structured risks; later, user questions are embedded, matched against chunks, reranked, and answered by an LLM using retrieved source context.

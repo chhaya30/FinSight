@@ -52,16 +52,23 @@ async def run_pipeline(report_id: UUID):
         result = pipeline.run(page_contents, str(report_id))
 
         for risk in result.risks:
+            entities_dump = [
+                e.model_dump() if hasattr(e, "model_dump") else dict(e)
+                for e in (risk.entities or [])
+            ]
             risk_model = RiskItem(
-                report_id=report_id,
+                report_id=str(report_id),
+                company_id=report.company_id,
                 category=risk.category,
                 severity=risk.severity,
                 confidence_score=risk.confidence_score,
                 summary=risk.summary,
+                risk_title=risk.summary[:200],
                 source_page=risk.candidate.source_page,
                 source_paragraph=risk.candidate.text[:500],
-                entities=[e.model_dump() for e in risk.entities],
-                metadata={
+                source_text_hash=risk.candidate.source_text_hash,
+                entities=entities_dump,
+                extra_metadata={
                     "source_section": risk.candidate.source_section,
                     "paragraph_index": risk.candidate.paragraph_index,
                 },

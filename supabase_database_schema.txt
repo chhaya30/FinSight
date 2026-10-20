@@ -1,0 +1,667 @@
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
+
+CREATE TABLE public.profiles (
+  id uuid NOT NULL,
+  full_name text,
+  avatar_url text,
+  role text NOT NULL DEFAULT 'analyst'::text CHECK (role = ANY (ARRAY['admin'::text, 'analyst'::text, 'viewer'::text])),
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT profiles_pkey PRIMARY KEY (id),
+  CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id)
+);
+CREATE TABLE public.workspaces (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  description text,
+  created_by uuid,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT workspaces_pkey PRIMARY KEY (id),
+  CONSTRAINT workspaces_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.profiles(id)
+);
+CREATE TABLE public.workspace_members (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  workspace_id uuid NOT NULL,
+  user_id uuid NOT NULL,
+  role text NOT NULL DEFAULT 'analyst'::text CHECK (role = ANY (ARRAY['owner'::text, 'admin'::text, 'analyst'::text, 'viewer'::text])),
+  joined_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT workspace_members_pkey PRIMARY KEY (id),
+  CONSTRAINT workspace_members_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id),
+  CONSTRAINT workspace_members_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id)
+);
+CREATE TABLE public.companies (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  workspace_id uuid NOT NULL,
+  name text NOT NULL,
+  legal_name text,
+  ticker_symbol text,
+  isin text,
+  cin text,
+  sector text,
+  industry text,
+  sub_industry text,
+  description text,
+  headquarters text,
+  country text DEFAULT 'India'::text,
+  listed_exchange text CHECK (listed_exchange IS NULL OR (listed_exchange = ANY (ARRAY['NSE'::text, 'BSE'::text, 'NYSE'::text, 'NASDAQ'::text, 'LSE'::text, 'OTHER'::text]))),
+  market_cap numeric,
+  currency text DEFAULT 'INR'::text,
+  website_url text,
+  logo_url text,
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  extra_metadata jsonb DEFAULT '{}'::jsonb,
+  CONSTRAINT companies_pkey PRIMARY KEY (id),
+  CONSTRAINT companies_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id)
+);
+CREATE TABLE public.reports (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  company_id uuid NOT NULL,
+  workspace_id uuid NOT NULL,
+  fiscal_year integer NOT NULL,
+  report_type text NOT NULL DEFAULT 'annual_report'::text CHECK (report_type = ANY (ARRAY['annual_report'::text, '10-K'::text, '20-F'::text, '10-Q'::text, 'SEBI_FILING'::text, 'BSE_FILING'::text, 'NSE_FILING'::text, 'OTHER'::text])),
+  title text,
+  source_file_name text,
+  source_file_path text,
+  source_url text,
+  file_hash text,
+  file_size_bytes bigint,
+  page_count integer,
+  document_version integer NOT NULL DEFAULT 1,
+  processing_status text NOT NULL DEFAULT 'uploaded'::text CHECK (processing_status = ANY (ARRAY['uploaded'::text, 'queued'::text, 'processing'::text, 'ocr_required'::text, 'processed'::text, 'failed'::text, 'cancelled'::text])),
+  processing_error text,
+  uploaded_by uuid,
+  uploaded_at timestamp with time zone NOT NULL DEFAULT now(),
+  processed_at timestamp with time zone,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  extra_metadata jsonb DEFAULT '{}'::jsonb,
+  CONSTRAINT reports_pkey PRIMARY KEY (id),
+  CONSTRAINT reports_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id),
+  CONSTRAINT reports_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id),
+  CONSTRAINT reports_uploaded_by_fkey FOREIGN KEY (uploaded_by) REFERENCES public.profiles(id)
+);
+CREATE TABLE public.report_pages (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  report_id uuid NOT NULL,
+  page_number integer NOT NULL,
+  raw_text text,
+  ocr_text text,
+  ocr_confidence numeric,
+  layout_data jsonb,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT report_pages_pkey PRIMARY KEY (id),
+  CONSTRAINT report_pages_report_id_fkey FOREIGN KEY (report_id) REFERENCES public.reports(id)
+);
+CREATE TABLE public.document_chunks (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  report_id uuid NOT NULL,
+  page_id uuid,
+  chunk_index integer NOT NULL,
+  content text NOT NULL,
+  token_count integer,
+  page_start integer,
+  page_end integer,
+  section_title text,
+  embedding USER-DEFINED,
+  metadata jsonb DEFAULT '{}'::jsonb,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT document_chunks_pkey PRIMARY KEY (id),
+  CONSTRAINT document_chunks_report_id_fkey FOREIGN KEY (report_id) REFERENCES public.reports(id),
+  CONSTRAINT document_chunks_page_id_fkey FOREIGN KEY (page_id) REFERENCES public.report_pages(id)
+);
+CREATE TABLE public.risk_categories (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  name text NOT NULL UNIQUE,
+  description text,
+  color_code text,
+  default_severity integer CHECK (default_severity >= 1 AND default_severity <= 5),
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT risk_categories_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.risks (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  report_id uuid NOT NULL,
+  company_id uuid NOT NULL,
+  category_id uuid,
+  risk_title text NOT NULL,
+  risk_summary text,
+  risk_description text,
+  business_impact text,
+  importance_explanation text,
+  recommendation text,
+  severity integer CHECK (severity >= 1 AND severity <= 5),
+  severity_label text CHECK (severity_label IS NULL OR (severity_label = ANY (ARRAY['LOW'::text, 'MEDIUM'::text, 'HIGH'::text, 'CRITICAL'::text]))),
+  confidence_score numeric CHECK (confidence_score IS NULL OR confidence_score >= 0::numeric AND confidence_score <= 1::numeric),
+  materiality_score numeric,
+  is_material boolean NOT NULL DEFAULT false,
+  extraction_method text CHECK (extraction_method IS NULL OR (extraction_method = ANY (ARRAY['LLM'::text, 'RULE'::text, 'HYBRID'::text, 'HUMAN'::text]))),
+  review_status text NOT NULL DEFAULT 'pending'::text CHECK (review_status = ANY (ARRAY['pending'::text, 'reviewed'::text, 'approved'::text, 'rejected'::text])),
+  embedding USER-DEFINED,
+  metadata jsonb DEFAULT '{}'::jsonb,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT risks_pkey PRIMARY KEY (id),
+  CONSTRAINT risks_report_id_fkey FOREIGN KEY (report_id) REFERENCES public.reports(id),
+  CONSTRAINT risks_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id),
+  CONSTRAINT risks_category_id_fkey FOREIGN KEY (category_id) REFERENCES public.risk_categories(id)
+);
+CREATE TABLE public.risk_citations (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  risk_id uuid NOT NULL,
+  chunk_id uuid,
+  page_id uuid,
+  page_number integer,
+  paragraph_number integer,
+  source_text text NOT NULL,
+  highlighted_text text,
+  start_char integer,
+  end_char integer,
+  citation_type text NOT NULL DEFAULT 'primary'::text CHECK (citation_type = ANY (ARRAY['primary'::text, 'supporting'::text, 'contradicting'::text])),
+  relevance_score numeric,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT risk_citations_pkey PRIMARY KEY (id),
+  CONSTRAINT risk_citations_risk_id_fkey FOREIGN KEY (risk_id) REFERENCES public.risks(id),
+  CONSTRAINT risk_citations_chunk_id_fkey FOREIGN KEY (chunk_id) REFERENCES public.document_chunks(id),
+  CONSTRAINT risk_citations_page_id_fkey FOREIGN KEY (page_id) REFERENCES public.report_pages(id)
+);
+CREATE TABLE public.risk_entities (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  risk_id uuid NOT NULL,
+  entity_type text NOT NULL,
+  entity_name text NOT NULL,
+  normalized_name text,
+  confidence_score numeric,
+  metadata jsonb DEFAULT '{}'::jsonb,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT risk_entities_pkey PRIMARY KEY (id),
+  CONSTRAINT risk_entities_risk_id_fkey FOREIGN KEY (risk_id) REFERENCES public.risks(id)
+);
+CREATE TABLE public.risk_topics (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  name text NOT NULL UNIQUE,
+  description text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT risk_topics_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.ai_insights (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  workspace_id uuid NOT NULL,
+  company_id uuid,
+  report_id uuid,
+  risk_id uuid,
+  insight_type text NOT NULL CHECK (insight_type = ANY (ARRAY['EXECUTIVE_SUMMARY'::text, 'BUSINESS_IMPACT'::text, 'RISK_IMPORTANCE'::text, 'RECOMMENDATION'::text, 'EVOLUTION_SUMMARY'::text, 'FINANCIAL_INTERPRETATION'::text, 'NEWS_CORRELATION'::text, 'INDUSTRY_ANALYSIS'::text])),
+  title text,
+  content text NOT NULL,
+  confidence_score numeric,
+  model_name text,
+  prompt_version text,
+  generation_metadata jsonb DEFAULT '{}'::jsonb,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT ai_insights_pkey PRIMARY KEY (id),
+  CONSTRAINT ai_insights_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id),
+  CONSTRAINT ai_insights_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id),
+  CONSTRAINT ai_insights_report_id_fkey FOREIGN KEY (report_id) REFERENCES public.reports(id),
+  CONSTRAINT ai_insights_risk_id_fkey FOREIGN KEY (risk_id) REFERENCES public.risks(id)
+);
+CREATE TABLE public.risk_evolution (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  company_id uuid NOT NULL,
+  previous_risk_id uuid,
+  current_risk_id uuid,
+  previous_report_id uuid,
+  current_report_id uuid,
+  change_type text NOT NULL CHECK (change_type = ANY (ARRAY['NEW'::text, 'REMOVED'::text, 'SEVERITY_UP'::text, 'SEVERITY_DOWN'::text, 'MODIFIED'::text, 'UNCHANGED'::text])),
+  similarity_score numeric,
+  previous_severity integer,
+  current_severity integer,
+  ai_summary text,
+  confidence_score numeric,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT risk_evolution_pkey PRIMARY KEY (id),
+  CONSTRAINT risk_evolution_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id),
+  CONSTRAINT risk_evolution_previous_risk_id_fkey FOREIGN KEY (previous_risk_id) REFERENCES public.risks(id),
+  CONSTRAINT risk_evolution_current_risk_id_fkey FOREIGN KEY (current_risk_id) REFERENCES public.risks(id),
+  CONSTRAINT risk_evolution_previous_report_id_fkey FOREIGN KEY (previous_report_id) REFERENCES public.reports(id),
+  CONSTRAINT risk_evolution_current_report_id_fkey FOREIGN KEY (current_report_id) REFERENCES public.reports(id)
+);
+CREATE TABLE public.financial_snapshots (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  company_id uuid NOT NULL,
+  fiscal_year integer NOT NULL,
+  currency text NOT NULL DEFAULT 'INR'::text,
+  revenue numeric,
+  profit numeric,
+  net_margin numeric,
+  roe numeric,
+  roce numeric,
+  eps numeric,
+  debt_equity numeric,
+  cash_flow numeric,
+  operating_cash_flow numeric,
+  free_cash_flow numeric,
+  total_debt numeric,
+  total_assets numeric,
+  total_liabilities numeric,
+  market_cap numeric,
+  data_source text,
+  as_of_date date,
+  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  extra_metadata jsonb DEFAULT '{}'::jsonb,
+  CONSTRAINT financial_snapshots_pkey PRIMARY KEY (id),
+  CONSTRAINT financial_snapshots_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id)
+);
+CREATE TABLE public.financial_metrics (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  company_id uuid NOT NULL,
+  fiscal_year integer NOT NULL,
+  metric_name text NOT NULL,
+  metric_value numeric,
+  unit text,
+  currency text,
+  data_source text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT financial_metrics_pkey PRIMARY KEY (id),
+  CONSTRAINT financial_metrics_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id)
+);
+CREATE TABLE public.news_articles (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  company_id uuid,
+  workspace_id uuid,
+  title text NOT NULL,
+  description text,
+  content text,
+  source_name text,
+  source_url text,
+  author text,
+  published_at timestamp with time zone,
+  image_url text,
+  language text DEFAULT 'en'::text,
+  category text,
+  is_regulatory boolean DEFAULT false,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT news_articles_pkey PRIMARY KEY (id),
+  CONSTRAINT news_articles_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id),
+  CONSTRAINT news_articles_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id)
+);
+CREATE TABLE public.news_sentiments (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  article_id uuid NOT NULL UNIQUE,
+  sentiment text CHECK (sentiment = ANY (ARRAY['positive'::text, 'neutral'::text, 'negative'::text])),
+  score numeric,
+  risk_score numeric,
+  explanation text,
+  model_name text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT news_sentiments_pkey PRIMARY KEY (id),
+  CONSTRAINT news_sentiments_article_id_fkey FOREIGN KEY (article_id) REFERENCES public.news_articles(id)
+);
+CREATE TABLE public.market_events (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  company_id uuid,
+  event_type text NOT NULL,
+  title text,
+  description text,
+  event_date timestamp with time zone,
+  source_url text,
+  severity text CHECK (severity IS NULL OR (severity = ANY (ARRAY['LOW'::text, 'MEDIUM'::text, 'HIGH'::text, 'CRITICAL'::text]))),
+  ai_correlation text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT market_events_pkey PRIMARY KEY (id),
+  CONSTRAINT market_events_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id)
+);
+CREATE TABLE public.regulatory_filings (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  company_id uuid,
+  filing_type text,
+  regulator text,
+  filing_reference text,
+  title text,
+  description text,
+  filing_date date,
+  source_url text,
+  raw_data jsonb,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT regulatory_filings_pkey PRIMARY KEY (id),
+  CONSTRAINT regulatory_filings_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id)
+);
+CREATE TABLE public.industry_benchmarks (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  sector text NOT NULL,
+  industry text,
+  fiscal_year integer NOT NULL,
+  benchmark_name text NOT NULL,
+  benchmark_value numeric,
+  metric_unit text,
+  methodology text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT industry_benchmarks_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.company_peer_groups (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  workspace_id uuid NOT NULL,
+  name text NOT NULL,
+  description text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT company_peer_groups_pkey PRIMARY KEY (id),
+  CONSTRAINT company_peer_groups_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id)
+);
+CREATE TABLE public.saved_scans (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  workspace_id uuid NOT NULL,
+  created_by uuid,
+  name text NOT NULL,
+  description text,
+  logic text NOT NULL DEFAULT 'AND'::text CHECK (logic = ANY (ARRAY['AND'::text, 'OR'::text])),
+  filter_conditions jsonb NOT NULL DEFAULT '[]'::jsonb,
+  is_shared boolean NOT NULL DEFAULT false,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT saved_scans_pkey PRIMARY KEY (id),
+  CONSTRAINT saved_scans_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id),
+  CONSTRAINT saved_scans_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.profiles(id)
+);
+CREATE TABLE public.watchlists (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  workspace_id uuid NOT NULL,
+  user_id uuid NOT NULL,
+  name text NOT NULL,
+  description text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT watchlists_pkey PRIMARY KEY (id),
+  CONSTRAINT watchlists_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id),
+  CONSTRAINT watchlists_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id)
+);
+CREATE TABLE public.watchlist_companies (
+  watchlist_id uuid NOT NULL,
+  company_id uuid NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT watchlist_companies_pkey PRIMARY KEY (watchlist_id, company_id),
+  CONSTRAINT watchlist_companies_watchlist_id_fkey FOREIGN KEY (watchlist_id) REFERENCES public.watchlists(id),
+  CONSTRAINT watchlist_companies_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id)
+);
+CREATE TABLE public.favorites (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  company_id uuid,
+  risk_id uuid,
+  report_id uuid,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT favorites_pkey PRIMARY KEY (id),
+  CONSTRAINT favorites_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id),
+  CONSTRAINT favorites_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id),
+  CONSTRAINT favorites_risk_id_fkey FOREIGN KEY (risk_id) REFERENCES public.risks(id),
+  CONSTRAINT favorites_report_id_fkey FOREIGN KEY (report_id) REFERENCES public.reports(id)
+);
+CREATE TABLE public.dashboard_preferences (
+  user_id uuid NOT NULL,
+  theme text DEFAULT 'system'::text CHECK (theme = ANY (ARRAY['light'::text, 'dark'::text, 'system'::text])),
+  layout jsonb DEFAULT '{}'::jsonb,
+  default_company_id uuid,
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT dashboard_preferences_pkey PRIMARY KEY (user_id),
+  CONSTRAINT dashboard_preferences_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id),
+  CONSTRAINT dashboard_preferences_default_company_id_fkey FOREIGN KEY (default_company_id) REFERENCES public.companies(id)
+);
+CREATE TABLE public.recent_activity (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  workspace_id uuid NOT NULL,
+  user_id uuid,
+  activity_type text NOT NULL,
+  entity_type text,
+  entity_id uuid,
+  metadata jsonb DEFAULT '{}'::jsonb,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT recent_activity_pkey PRIMARY KEY (id),
+  CONSTRAINT recent_activity_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id),
+  CONSTRAINT recent_activity_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id)
+);
+CREATE TABLE public.annotations (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  workspace_id uuid NOT NULL,
+  user_id uuid NOT NULL,
+  report_id uuid NOT NULL,
+  page_id uuid,
+  annotation_type text NOT NULL CHECK (annotation_type = ANY (ARRAY['highlight'::text, 'note'::text, 'bookmark'::text])),
+  selected_text text,
+  note_text text,
+  start_char integer,
+  end_char integer,
+  bounding_box jsonb,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT annotations_pkey PRIMARY KEY (id),
+  CONSTRAINT annotations_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id),
+  CONSTRAINT annotations_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id),
+  CONSTRAINT annotations_report_id_fkey FOREIGN KEY (report_id) REFERENCES public.reports(id),
+  CONSTRAINT annotations_page_id_fkey FOREIGN KEY (page_id) REFERENCES public.report_pages(id)
+);
+CREATE TABLE public.processing_jobs (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  report_id uuid NOT NULL,
+  job_type text NOT NULL CHECK (job_type = ANY (ARRAY['INGESTION'::text, 'OCR'::text, 'PARSING'::text, 'CHUNKING'::text, 'EMBEDDING'::text, 'RISK_EXTRACTION'::text, 'NER'::text, 'TOPIC_EXTRACTION'::text, 'RISK_CLASSIFICATION'::text, 'EVOLUTION_ANALYSIS'::text])),
+  status text NOT NULL DEFAULT 'queued'::text CHECK (status = ANY (ARRAY['queued'::text, 'running'::text, 'completed'::text, 'failed'::text, 'cancelled'::text])),
+  progress integer DEFAULT 0 CHECK (progress >= 0 AND progress <= 100),
+  started_at timestamp with time zone,
+  completed_at timestamp with time zone,
+  error_message text,
+  metadata jsonb DEFAULT '{}'::jsonb,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT processing_jobs_pkey PRIMARY KEY (id),
+  CONSTRAINT processing_jobs_report_id_fkey FOREIGN KEY (report_id) REFERENCES public.reports(id)
+);
+CREATE TABLE public.generated_reports (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  workspace_id uuid NOT NULL,
+  company_id uuid,
+  created_by uuid,
+  title text NOT NULL,
+  report_type text NOT NULL CHECK (report_type = ANY (ARRAY['EXECUTIVE'::text, 'RISK_EVOLUTION'::text, 'FINANCIAL'::text, 'EVIDENCE'::text, 'PEER_COMPARISON'::text, 'FULL'::text])),
+  format text NOT NULL DEFAULT 'pdf'::text CHECK (format = ANY (ARRAY['pdf'::text, 'html'::text])),
+  file_path text,
+  status text NOT NULL DEFAULT 'generating'::text CHECK (status = ANY (ARRAY['generating'::text, 'completed'::text, 'failed'::text])),
+  parameters jsonb DEFAULT '{}'::jsonb,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  completed_at timestamp with time zone,
+  CONSTRAINT generated_reports_pkey PRIMARY KEY (id),
+  CONSTRAINT generated_reports_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id),
+  CONSTRAINT generated_reports_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id),
+  CONSTRAINT generated_reports_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.profiles(id)
+);
+CREATE TABLE public.analyst_notes (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  workspace_id uuid NOT NULL,
+  user_id uuid NOT NULL,
+  company_id uuid,
+  report_id uuid,
+  risk_id uuid,
+  title text,
+  content text NOT NULL,
+  is_private boolean NOT NULL DEFAULT true,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT analyst_notes_pkey PRIMARY KEY (id),
+  CONSTRAINT analyst_notes_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id),
+  CONSTRAINT analyst_notes_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id),
+  CONSTRAINT analyst_notes_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id),
+  CONSTRAINT analyst_notes_report_id_fkey FOREIGN KEY (report_id) REFERENCES public.reports(id),
+  CONSTRAINT analyst_notes_risk_id_fkey FOREIGN KEY (risk_id) REFERENCES public.risks(id)
+);
+CREATE TABLE public.risk_taxonomy_rules (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  workspace_id uuid NOT NULL,
+  category_id uuid,
+  name text NOT NULL,
+  description text,
+  keywords ARRAY,
+  severity_thresholds jsonb DEFAULT '{}'::jsonb,
+  classification_rules jsonb DEFAULT '{}'::jsonb,
+  is_active boolean NOT NULL DEFAULT true,
+  created_by uuid,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT risk_taxonomy_rules_pkey PRIMARY KEY (id),
+  CONSTRAINT risk_taxonomy_rules_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id),
+  CONSTRAINT risk_taxonomy_rules_category_id_fkey FOREIGN KEY (category_id) REFERENCES public.risk_categories(id),
+  CONSTRAINT risk_taxonomy_rules_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.profiles(id)
+);
+CREATE TABLE public.risk_topics_map (
+  risk_id uuid NOT NULL,
+  topic_id uuid NOT NULL,
+  confidence_score numeric,
+  CONSTRAINT risk_topics_map_pkey PRIMARY KEY (risk_id, topic_id),
+  CONSTRAINT risk_topics_map_risk_id_fkey FOREIGN KEY (risk_id) REFERENCES public.risks(id),
+  CONSTRAINT risk_topics_map_topic_id_fkey FOREIGN KEY (topic_id) REFERENCES public.risk_topics(id)
+);
+CREATE TABLE public.risk_comparisons (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  company_id uuid NOT NULL,
+  previous_report_id uuid NOT NULL,
+  current_report_id uuid NOT NULL,
+  previous_text text,
+  current_text text,
+  semantic_similarity numeric,
+  change_type text CHECK (change_type IS NULL OR (change_type = ANY (ARRAY['NEW'::text, 'REMOVED'::text, 'MODIFIED'::text, 'SEVERITY_UP'::text, 'SEVERITY_DOWN'::text, 'UNCHANGED'::text]))),
+  semantic_diff jsonb DEFAULT '{}'::jsonb,
+  ai_explanation text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT risk_comparisons_pkey PRIMARY KEY (id),
+  CONSTRAINT risk_comparisons_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id),
+  CONSTRAINT risk_comparisons_previous_report_id_fkey FOREIGN KEY (previous_report_id) REFERENCES public.reports(id),
+  CONSTRAINT risk_comparisons_current_report_id_fkey FOREIGN KEY (current_report_id) REFERENCES public.reports(id)
+);
+CREATE TABLE public.peer_group_members (
+  peer_group_id uuid NOT NULL,
+  company_id uuid NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT peer_group_members_pkey PRIMARY KEY (peer_group_id, company_id),
+  CONSTRAINT peer_group_members_peer_group_id_fkey FOREIGN KEY (peer_group_id) REFERENCES public.company_peer_groups(id),
+  CONSTRAINT peer_group_members_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id)
+);
+CREATE TABLE public.annotation_comments (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  annotation_id uuid NOT NULL,
+  user_id uuid NOT NULL,
+  comment text NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT annotation_comments_pkey PRIMARY KEY (id),
+  CONSTRAINT annotation_comments_annotation_id_fkey FOREIGN KEY (annotation_id) REFERENCES public.annotations(id),
+  CONSTRAINT annotation_comments_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id)
+);
+CREATE TABLE public.annotation_shares (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  annotation_id uuid NOT NULL,
+  shared_with_user_id uuid,
+  permission text NOT NULL DEFAULT 'view'::text CHECK (permission = ANY (ARRAY['view'::text, 'comment'::text, 'edit'::text])),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT annotation_shares_pkey PRIMARY KEY (id),
+  CONSTRAINT annotation_shares_annotation_id_fkey FOREIGN KEY (annotation_id) REFERENCES public.annotations(id),
+  CONSTRAINT annotation_shares_shared_with_user_id_fkey FOREIGN KEY (shared_with_user_id) REFERENCES public.profiles(id)
+);
+CREATE TABLE public.risk_items (
+  report_id uuid NOT NULL,
+  category character varying NOT NULL,
+  severity character varying NOT NULL,
+  confidence_score double precision NOT NULL,
+  summary text NOT NULL,
+  source_page integer,
+  source_paragraph text,
+  source_text_hash character varying,
+  entities json,
+  extra_metadata json,
+  id uuid NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT risk_items_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.evolution_entries (
+  risk_item_id_prev uuid,
+  risk_item_id_current uuid,
+  change_type character varying NOT NULL,
+  ai_summary text,
+  similarity_score double precision,
+  severity_change integer,
+  extra_metadata json,
+  id uuid NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT evolution_entries_pkey PRIMARY KEY (id)
+);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Comparison: Our DB vs Supabase Schema
+Table	Supabase	Our DB	Status
+profiles	✅	❌	Missing (auth users)
+workspaces	✅	✅	Exists (simplified)
+workspace_members	✅	❌	Missing
+companies	✅	✅	Partial - missing constraints
+reports	✅	✅	Partial - missing CHECK constraints, uploaded_by FK
+report_pages	✅	✅	✅
+document_chunks	✅	✅	✅
+risk_categories	✅	✅	✅
+risks	✅	✅	Partial - missing CHECK constraints, FK to risk_categories
+risk_citations	✅	✅	✅
+risk_entities	✅	✅	✅
+risk_topics	✅	❌	Missing
+risk_topics_map	✅	❌	Missing
+ai_insights	✅	❌	Missing
+risk_evolution	✅	✅	Partial - different column names
+financial_snapshots	✅	✅	Partial - missing many fields
+financial_metrics	✅	✅	✅
+news_articles	✅	❌	Missing
+news_sentiments	✅	❌	Missing
+market_events	✅	❌	Missing
+regulatory_filings	✅	❌	Missing
+industry_benchmarks	✅	❌	Missing
+company_peer_groups	✅	❌	Missing
+saved_scans	✅	✅	Partial
+watchlists	✅	❌	Missing
+watchlist_companies	✅	❌	Missing
+favorites	✅	❌	Missing
+dashboard_preferences	✅	❌	Missing
+recent_activity	✅	❌	Missing
+annotations	✅	❌	Missing
+processing_jobs	✅	❌	Missing
+generated_reports	✅	❌	Missing
+analyst_notes	✅	❌	Missing
+risk_taxonomy_rules	✅	❌	Missing
+risk_comparisons	✅	❌	Missing
+peer_group_members	✅	❌	Missing
+annotation_comments	✅	❌	Missing
+annotation_shares	✅	❌	Missing
+Key Missing in Our Implementation:
+1. Auth/Profiles - profiles table linked to auth.users
+2. Workspace members - multi-user workspace support
+3. CHECK constraints - on report_type, processing_status, listed_exchange, severity_label, extraction_method, review_status, change_type
+4. Foreign keys - uploaded_by → profiles, risk_categories FK in risks
+5. Financial snapshots - missing: operating_cash_flow, free_cash_flow, total_debt, total_assets, total_liabilities, data_source, as_of_date, metadata
+6. Risk evolution - Supabase uses previous_risk_id/current_risk_id (not risk_item_id_prev/current)
+7. Many auxiliary tables - news, market events, watchlists, annotations, etc.
+For Phase 1 (Backend Stabilization), our current 13 tables cover the core pipeline. The additional Supabase tables are for Phase 2+ features (multi-user, market intelligence, annotations, etc.).
+Do you want me to:
+1. Add the missing CHECK constraints and FKs to align core tables?
+2. Add profiles/workspace_members for auth readiness?
+3. Leave as-is for now (13 tables sufficient for ingestion → chunk → embed → risk extraction pipeline)?
+The supabase_database_schema.txt is a reference target - we don't need to modify it. Our SQLAlchemy models in app/db/base.py are what gets created.

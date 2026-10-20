@@ -1,5 +1,6 @@
 import subprocess
 import tempfile
+import shutil
 from pathlib import Path
 
 import pymupdf
@@ -48,14 +49,14 @@ class OCREngine:
                 page = doc[page_num]
                 pix = page.get_pixmap(dpi=self.dpi)
 
-                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-                    pix.save(tmp.name)
-                    img_path = Path(tmp.name)
+                image_dir = Path(tempfile.mkdtemp(prefix="finsight_page_"))
+                img_path = image_dir / "page.png"
+                pix.save(str(img_path))
 
                 try:
                     text = self._ocr_image(img_path)
                 finally:
-                    img_path.unlink(missing_ok=True)
+                    shutil.rmtree(image_dir, ignore_errors=True)
 
                 pages.append(
                     PageContent(
@@ -70,6 +71,8 @@ class OCREngine:
                 file_path=file_path,
                 total_pages=len(doc),
                 file_size_bytes=file_path.stat().st_size,
+                extraction_method="tesseract_ocr",
+                ocr_used=True,
             )
 
             logger.info(
@@ -87,14 +90,14 @@ class OCREngine:
         return self._ocr_image(file_path)
 
     def _ocr_image(self, image_path: Path) -> str:
-        with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as tmp:
-            output_base = tmp.name[:-4]
+        output_dir = Path(tempfile.mkdtemp(prefix="finsight_ocr_"))
+        output_base = output_dir / "result"
 
         try:
             cmd = [
                 self.tesseract_cmd,
                 str(image_path),
-                output_base,
+                str(output_base),
                 "-l",
                 self.language,
                 "--psm",
@@ -116,7 +119,7 @@ class OCREngine:
                 )
                 return ""
 
-            output_file = Path(f"{output_base}.txt")
+            output_file = output_base.with_suffix(".txt")
             if output_file.exists():
                 return output_file.read_text(encoding="utf-8")
             return ""
@@ -127,7 +130,7 @@ class OCREngine:
             logger.error("tesseract_error", error=str(e), image_path=str(image_path))
             return ""
         finally:
-            Path(f"{output_base}.txt").unlink(missing_ok=True)
+            shutil.rmtree(output_dir, ignore_errors=True)
 
     def is_available(self) -> bool:
         try:
@@ -155,14 +158,14 @@ class TesseractOCREngine(OCREngine):
         self.config = config
 
     def _ocr_image(self, image_path: Path) -> str:
-        with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as tmp:
-            output_base = tmp.name[:-4]
+        output_dir = Path(tempfile.mkdtemp(prefix="finsight_ocr_"))
+        output_base = output_dir / "result"
 
         try:
             cmd = [
                 self.tesseract_cmd,
                 str(image_path),
-                output_base,
+                str(output_base),
                 "-l",
                 self.language,
                 "--psm",
@@ -187,7 +190,7 @@ class TesseractOCREngine(OCREngine):
                 )
                 return ""
 
-            output_file = Path(f"{output_base}.txt")
+            output_file = output_base.with_suffix(".txt")
             if output_file.exists():
                 return output_file.read_text(encoding="utf-8")
             return ""
@@ -195,7 +198,7 @@ class TesseractOCREngine(OCREngine):
             logger.error("tesseract_error", error=str(e), image_path=str(image_path))
             return ""
         finally:
-            Path(f"{output_base}.txt").unlink(missing_ok=True)
+            shutil.rmtree(output_dir, ignore_errors=True)
 
 
 def create_ocr_engine(**kwargs) -> OCREngine:

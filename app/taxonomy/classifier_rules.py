@@ -419,21 +419,69 @@ class RuleBasedClassifier:
         return [{"category": cat, "score": score} for cat, score in sorted_categories[:top_k]]
 
 
-class SeverityRules:
-    SEVERITY_KEYWORDS = {
-        "critical": [
+CATEGORY_SEVERITY_KEYWORDS = {
+    "critical": {
+        "general": [
+            "catastrophic",
             "existential",
             "bankruptcy",
             "going concern",
-            "material weakness",
-            "catastrophic",
             "survival",
             "cease operations",
             "insolvency",
         ],
-        "high": [
+        "cyber": [
+            "catastrophic",
+            "existential",
+            "ransomware",
+            "data breach",
+            "critical vulnerability",
+            "zero-day",
+            "system compromise",
+            "total outage",
+        ],
+        "financial": [
+            "material adverse effect",
+            "going concern",
+            "bankruptcy",
+            "insolvency",
+            "liquidity crisis",
+            "default",
+            "covenant breach",
+            "significant deficiency",
+        ],
+        "regulatory": [
+            "regulatory breach",
+            "license revocation",
+            "enforcement action",
+            "criminal investigation",
+            "material non-compliance",
+        ],
+        "legal": [
+            "major litigation",
+            "class action",
+            "significant judgment",
+            "injunction",
+            "regulatory fine",
+            "criminal liability",
+        ],
+        "operational": [
+            "business disruption",
+            "complete shutdown",
+            "plant closure",
+            "supply chain collapse",
+        ],
+        "auditor_concern": [
+            "material weakness",
+            "adverse opinion",
+            "qualified opinion",
+            "going concern",
+            "significant deficiency",
+        ],
+    },
+    "high": {
+        "general": [
             "significant",
-            "material",
             "substantial",
             "major",
             "severe",
@@ -444,7 +492,61 @@ class SeverityRules:
             "major risk",
             "high probability",
         ],
-        "medium": [
+        "cyber": [
+            "privacy violation",
+            "unauthorized access",
+            "malware",
+            "phishing campaign",
+            "security incident",
+            "vulnerability exploit",
+        ],
+        "financial": [
+            "margin pressure",
+            "revenue decline",
+            "earnings volatility",
+            "impairment",
+            "write-down",
+            "goodwill impairment",
+            "credit rating downgrade",
+        ],
+        "regulatory": [
+            "new regulation",
+            "compliance cost",
+            "regulatory change",
+            "statutory requirement",
+            "license renewal risk",
+        ],
+        "legal": [
+            "litigation",
+            "lawsuit",
+            "legal proceeding",
+            "contingent liability",
+            "arbitration",
+            "settlement",
+        ],
+        "operational": [
+            "process failure",
+            "system outage",
+            "business continuity",
+            "disaster recovery",
+            "key supplier failure",
+        ],
+        "strategic": [
+            "competitive threat",
+            "market share loss",
+            "disruptive technology",
+            "business model risk",
+        ],
+        "reputational": [
+            "reputation damage",
+            "brand damage",
+            "media scrutiny",
+            "public backlash",
+            "customer confidence loss",
+        ],
+    },
+    "medium": {
+        "general": [
             "moderate",
             "potential",
             "possible",
@@ -453,25 +555,110 @@ class SeverityRules:
             "reasonably possible",
             "likely",
             "expected to",
+            "uncertainty",
+            "dependency",
         ],
-        "low": [
-            "minor",
+        "cyber": [
+            "security risk",
+            "it risk",
+            "technology risk",
+            "privacy concern",
+            "compliance gap",
+        ],
+        "financial": [
+            "cost increase",
+            "pricing pressure",
+            "foreign exchange",
+            "interest rate risk",
+            "commodity price risk",
+        ],
+        "regulatory": [
+            "regulatory uncertainty",
+            "pending regulation",
+            "compliance burden",
+            "reporting requirement",
+        ],
+        "legal": [
+            "legal uncertainty",
+            "potential claim",
+            "regulatory inquiry",
+            "contract dispute",
+        ],
+        "operational": [
+            "efficiency risk",
+            "capacity constraint",
+            "vendor risk",
+            "process improvement",
+        ],
+        "supply_chain": [
+            "single source",
+            "concentration risk",
+            "vendor dependency",
+            "logistics disruption",
+        ],
+    },
+    "low": {
+        "general": [
             "limited",
+            "minor",
             "minimal",
             "unlikely",
             "remote",
             "low probability",
             "immaterial",
             "negligible",
+            "manageable",
         ],
-        "informational": [
+        "cyber": [
+            "low severity vulnerability",
+            "minor configuration issue",
+            "routine patch",
+        ],
+        "financial": [
+            "minor cost",
+            "small variance",
+            "immaterial impact",
+            "routine expense",
+        ],
+        "regulatory": [
+            "routine filing",
+            "minor disclosure",
+            "administrative requirement",
+        ],
+        "legal": [
+            "routine matter",
+            "minor dispute",
+            "standard contract",
+        ],
+        "operational": [
+            "routine maintenance",
+            "minor process issue",
+            "standard operating risk",
+        ],
+    },
+    "informational": {
+        "general": [
             "disclosed for transparency",
             "no impact",
             "routine",
             "for information",
             "no material effect",
+            "no expected impact",
         ],
-    }
+    },
+}
+
+
+def _get_general_keywords() -> dict[str, list[str]]:
+    """Extract general keywords from category-aware structure."""
+    result = {}
+    for severity, cat_dict in CATEGORY_SEVERITY_KEYWORDS.items():
+        result[severity] = cat_dict.get("general", [])
+    return result
+
+
+class SeverityRules:
+    SEVERITY_KEYWORDS = _get_general_keywords()
 
     @classmethod
     def classify_severity(cls, text: str, category: str = None) -> str:
@@ -481,21 +668,69 @@ class SeverityRules:
         for severity, keywords in cls.SEVERITY_KEYWORDS.items():
             scores[severity] = sum(2 if kw in text_lower else 0 for kw in keywords)
 
-        category_boost = {
-            "cyber": {"critical": 1, "high": 1},
-            "auditor_concern": {"critical": 2, "high": 1},
-            "liquidity": {"critical": 1, "high": 1},
-            "legal": {"high": 1},
-        }
-
-        if category and category in category_boost:
-            for sev, boost in category_boost[category].items():
-                scores[sev] = scores.get(sev, 0) + boost
+        if category:
+            for severity in ["critical", "high", "medium", "low", "informational"]:
+                cat_keywords = CATEGORY_SEVERITY_KEYWORDS.get(severity, {}).get(category, [])
+                if cat_keywords:
+                    scores[severity] = scores.get(severity, 0) + sum(
+                        2 if kw in text_lower else 0 for kw in cat_keywords
+                    )
 
         if not any(scores.values()):
             return "medium"
 
         return max(scores, key=scores.get)
+
+    @classmethod
+    def get_severity_score(cls, severity: str) -> int:
+        """Convert severity level to 0-10 score."""
+        severity_scores = {
+            "informational": 1,
+            "low": 3,
+            "medium": 5,
+            "high": 7,
+            "critical": 9,
+        }
+        return severity_scores.get(severity.lower(), 5)
+
+    @classmethod
+    def get_severity_from_score(cls, score: float) -> str:
+        """Convert 0-10 score to severity level."""
+        if score <= 2:
+            return "low"
+        elif score <= 5:
+            return "medium"
+        elif score <= 8:
+            return "high"
+        else:
+            return "critical"
+
+    @classmethod
+    def calculate_risk_score(
+        cls,
+        severity: str,
+        confidence: float,
+        new_risks_count: int = 0,
+        escalated_risks_count: int = 0,
+    ) -> float:
+        """
+        Calculate overall risk score.
+        
+        risk score = severity_weight + confidence_weight + new_risks_bonus + escalated_risks_bonus
+        
+        Where:
+        - severity_weight: 0-10 based on severity level
+        - confidence_weight: confidence * 10 (0-10)
+        - new_risks_bonus: new_risks_count * 0.5 (capped at 5)
+        - escalated_risks_bonus: escalated_risks_count * 1.0 (capped at 5)
+        """
+        severity_score = cls.get_severity_score(severity)
+        confidence_score = confidence * 10
+        new_risks_bonus = min(new_risks_count * 0.5, 5.0)
+        escalated_risks_bonus = min(escalated_risks_count * 1.0, 5.0)
+        
+        total = severity_score + confidence_score + new_risks_bonus + escalated_risks_bonus
+        return round(total, 2)
 
 
 def create_classifier() -> RuleBasedClassifier:

@@ -1,7 +1,15 @@
 import { type ReactNode } from "react";
 import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
-import { severityMeta, type Severity } from "@/lib/mock-data";
+
+type Severity = "critical" | "high" | "medium" | "low";
+
+const severityMeta: Record<Severity, { label: string; color: string }> = {
+  critical: { label: "Critical", color: "var(--severity-critical)" },
+  high: { label: "High", color: "var(--severity-high)" },
+  medium: { label: "Medium", color: "var(--severity-medium)" },
+  low: { label: "Low", color: "var(--severity-low)" },
+};
 
 export function GlassCard({
   className,

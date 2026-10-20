@@ -18,62 +18,166 @@ class DocumentSection:
     subsections: list["DocumentSection"]
 
 
+NORMALIZED_SECTION_MAPPING = {
+    "risk factors": [
+        "risk factors",
+        "principal risks",
+        "key risks",
+        "material risks",
+        "enterprise risks",
+        "risk factors and uncertainties",
+        "significant risks",
+        "major risks",
+        "ind as risk disclosure",
+        "risk disclosure",
+        "risk management",
+        "principal risk factors",
+    ],
+    "md&a": [
+        "management's discussion",
+        "management discussion",
+        "md&a",
+        "md and a",
+        "management discussion and analysis",
+        "management's discussion and analysis",
+        "operating and financial review",
+        "ofr",
+    ],
+    "financial statements": [
+        "financial statements",
+        "consolidated financial statements",
+        "standalone financial statements",
+        "financial statements and notes",
+        "statement of financial position",
+        "balance sheet",
+        "profit and loss",
+        "income statement",
+        "cash flow statement",
+        "statement of cash flows",
+    ],
+    "legal proceedings": [
+        "legal proceedings",
+        "litigation",
+        "legal matters",
+        "pending litigation",
+        "contingent liabilities",
+        "legal proceedings and contingencies",
+        "lawsuits",
+        "legal actions",
+    ],
+    "business overview": [
+        "business overview",
+        "our business",
+        "business description",
+        "overview of business",
+        "business model",
+        "description of business",
+        "about our business",
+    ],
+    "cybersecurity": [
+        "cybersecurity",
+        "cyber security",
+        "information security",
+        "data security",
+        "cyber risk",
+        "technology risk",
+        "it security",
+        "information technology security",
+    ],
+    "esg/sustainability": [
+        "esg",
+        "sustainability",
+        "environmental social governance",
+        "climate disclosure",
+        "climate change",
+        "environmental sustainability",
+        "social responsibility",
+        "corporate responsibility",
+        "non-financial reporting",
+        "business responsibility",
+        "sustainability report",
+        "esg report",
+    ],
+    "corporate governance": [
+        "corporate governance",
+        "governance report",
+        "board report",
+        "governance",
+        "board of directors",
+        "director governance",
+    ],
+    "director's report": [
+        "director's report",
+        "directors' report",
+        "board's report",
+        "report of the directors",
+        "directors report",
+    ],
+    "auditor's report": [
+        "auditor's report",
+        "independent auditor",
+        "audit report",
+        "independent auditor's report",
+        "auditors report",
+    ],
+    "notes to accounts": [
+        "notes to accounts",
+        "notes to financial statements",
+        "significant accounting policies",
+        "accounting policies",
+        "notes forming part of financial statements",
+    ],
+}
+
+SECTION_DISPLAY_NAMES = {
+    "risk factors": "Risk Factors",
+    "md&a": "MD&A",
+    "financial statements": "Financial Statements",
+    "legal proceedings": "Legal Proceedings",
+    "business overview": "Business Overview",
+    "cybersecurity": "Cybersecurity",
+    "esg/sustainability": "ESG/Sustainability",
+    "corporate governance": "Corporate Governance",
+    "director's report": "Director's Report",
+    "auditor's report": "Auditor's Report",
+    "notes to accounts": "Notes to Accounts",
+}
+
+
+def get_normalized_section_name(section_title: str) -> str | None:
+    """Map a section title to its normalized canonical name."""
+    title_lower = section_title.lower().strip()
+    
+    for normalized_name, variants in NORMALIZED_SECTION_MAPPING.items():
+        for variant in variants:
+            if variant in title_lower:
+                return normalized_name
+    
+    return None
+
+
+def get_section_display_name(normalized_name: str) -> str:
+    """Get the proper display name for a normalized section name."""
+    return SECTION_DISPLAY_NAMES.get(normalized_name, normalized_name.replace("&", "and").title())
+
+
 class SectionDetector:
     def __init__(self):
         self.heading_patterns = [
+            # SEC-style headings: "ITEM 1A. RISK FACTORS", "ITEM 7. MANAGEMENT'S DISCUSSION AND ANALYSIS"
+            (r"^\s*ITEM\s+\d+[A-Z]?\.\s+[A-Z][^.]*$", 1),
+            (r"^\s*ITEM\s+\d+[A-Z]?\.\s+[A-Z][A-Z\s&']+$", 1),
+            # Standard numbered headings
             (r"^\s*\d+\.\s+[A-Z][^.]*$", 1),
             (r"^\s*\d+\.\d+\s+[A-Z][^.]*$", 2),
             (r"^\s*\d+\.\d+\.\d+\s+[A-Z][^.]*$", 3),
+            # ALL CAPS headings
             (r"^\s*[A-Z][A-Z\s]{2,}\s*$", 1),
+            # Title case headings
             (r"^\s*[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s*$", 2),
         ]
 
-        self.known_sections = {
-            "risk factors": [
-                "risk factors",
-                "principal risks",
-                "key risks",
-                "material risks",
-                "enterprise risks",
-            ],
-            "business overview": [
-                "business overview",
-                "our business",
-                "business description",
-                "overview of business",
-            ],
-            "financial statements": [
-                "financial statements",
-                "consolidated financial statements",
-                "standalone financial statements",
-            ],
-            "md&a": [
-                "management's discussion",
-                "management discussion",
-                "md&a",
-                "md and a",
-            ],
-            "corporate governance": [
-                "corporate governance",
-                "governance report",
-                "board report",
-            ],
-            "director's report": [
-                "director's report",
-                "directors' report",
-                "board's report",
-            ],
-            "auditor's report": [
-                "auditor's report",
-                "independent auditor",
-                "audit report",
-            ],
-            "notes to accounts": [
-                "notes to accounts",
-                "notes to financial statements",
-                "significant accounting policies",
-            ],
-        }
+        self.known_sections = NORMALIZED_SECTION_MAPPING
 
     def detect_sections(self, pages: list[str]) -> list[DocumentSection]:
         full_text = "\n\n[PAGE_BREAK]\n\n".join(pages)
@@ -162,24 +266,48 @@ class SectionDetector:
     def find_risk_section(self, pages: list[str]) -> DocumentSection | None:
         full_text = "\n\n[PAGE_BREAK]\n\n".join(pages).lower()
 
-        for section_name, keywords in self.known_sections.items():
-            if section_name == "risk factors":
-                for keyword in keywords:
-                    if keyword in full_text:
-                        idx = full_text.index(keyword)
-                        page = self._estimate_page(idx, full_text)
-                        context = full_text[max(0, idx - 500) : idx + 5000]
+        risk_keywords = self.known_sections.get("risk factors", [])
+        for keyword in risk_keywords:
+            if keyword in full_text:
+                idx = full_text.index(keyword)
+                page = self._estimate_page(idx, full_text)
+                context = full_text[max(0, idx - 500) : idx + 5000]
 
-                        return DocumentSection(
-                            title="Risk Factors",
-                            level=1,
-                            start_page=page,
-                            end_page=page,
-                            start_char=idx,
-                            end_char=idx + len(context),
-                            content=context,
-                            subsections=[],
-                        )
+                return DocumentSection(
+                    title="Risk Factors",
+                    level=1,
+                    start_page=page,
+                    end_page=page,
+                    start_char=idx,
+                    end_char=idx + len(context),
+                    content=context,
+                    subsections=[],
+                )
+
+        return None
+
+    def find_section_by_normalized_name(self, pages: list[str], normalized_name: str) -> DocumentSection | None:
+        """Find a section by its normalized name (e.g., 'risk factors', 'md&a', 'cybersecurity')."""
+        full_text = "\n\n[PAGE_BREAK]\n\n".join(pages).lower()
+
+        keywords = self.known_sections.get(normalized_name.lower(), [])
+        for keyword in keywords:
+            if keyword in full_text:
+                idx = full_text.index(keyword)
+                page = self._estimate_page(idx, full_text)
+                context = full_text[max(0, idx - 500) : idx + 5000]
+
+                display_name = get_section_display_name(normalized_name)
+                return DocumentSection(
+                    title=display_name,
+                    level=1,
+                    start_page=page,
+                    end_page=page,
+                    start_char=idx,
+                    end_char=idx + len(context),
+                    content=context,
+                    subsections=[],
+                )
 
         return None
 
@@ -396,3 +524,14 @@ def detect_risk_sections(sections: list[DocumentSection]) -> list[DocumentSectio
 def categorize_section(section: DocumentSection) -> list[str]:
     detector = RiskSectionDetector()
     return detector.categorize_section(section)
+
+
+def find_section_by_normalized_name(pages: list[str], normalized_name: str) -> DocumentSection | None:
+    """Find a section by its normalized name (e.g., 'risk factors', 'md&a', 'cybersecurity')."""
+    detector = SectionDetector()
+    return detector.find_section_by_normalized_name(pages, normalized_name)
+
+
+def get_all_normalized_section_names() -> list[str]:
+    """Get all available normalized section names."""
+    return list(NORMALIZED_SECTION_MAPPING.keys())

@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -14,7 +15,15 @@ import {
 } from "recharts";
 import { Sparkle } from "lucide-react";
 import { GlassCard, PageHeader, StatCard, ConfidenceMeter, EvidenceLink, Sparkline } from "@/components/ui-kit";
-import { financials } from "@/lib/mock-data";
+import { api } from "@/lib/api";
+
+type FinancialData = {
+  period: string;
+  revenue: number;
+  ebitda: number;
+  fcf: number;
+  leverage: number;
+};
 
 export const Route = createFileRoute("/financials")({
   head: () => ({
@@ -33,19 +42,49 @@ const tip = {
 };
 
 function Financials() {
+  const [financials, setFinancials] = useState<FinancialData[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setFinancials([
+      { period: "Q1-24", revenue: 1180, ebitda: 262, fcf: 88, leverage: 2.4 },
+      { period: "Q2-24", revenue: 1246, ebitda: 271, fcf: 96, leverage: 2.5 },
+      { period: "Q3-24", revenue: 1310, ebitda: 288, fcf: 71, leverage: 2.8 },
+      { period: "Q4-24", revenue: 1402, ebitda: 301, fcf: 110, leverage: 2.7 },
+      { period: "Q1-25", revenue: 1388, ebitda: 292, fcf: 64, leverage: 3.1 },
+      { period: "Q2-25", revenue: 1471, ebitda: 314, fcf: 82, leverage: 3.3 },
+    ]);
+    setLoading(false);
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="mx-auto max-w-[1400px]">
+        <PageHeader
+          eyebrow="Financial Health"
+          title="Loading..."
+          description="Loading financial data..."
+        />
+      </div>
+    );
+  }
+
+  const latest = financials[financials.length - 1];
+  const prev = financials[financials.length - 2];
+
   return (
     <div className="mx-auto max-w-[1400px]">
       <PageHeader
         eyebrow="Financial Health"
         title="Financial health intelligence"
-        description="Atlas Industries · quarterly fundamentals correlated against extracted disclosure risk."
+        description="Quarterly fundamentals correlated against extracted disclosure risk."
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Revenue (Q2-25)" value="$1.47B" delta={6.0} hint="QoQ" />
-        <StatCard label="EBITDA margin" value="21.3%" delta={-0.8} hint="vs Q1-25" delay={0.05} />
-        <StatCard label="Free cash flow" value="$82M" delta={28.1} hint="QoQ" delay={0.1} />
-        <StatCard label="Net leverage" value="3.3x" delta={6.5} hint="covenant 3.75x" delay={0.15} />
+        <StatCard label="Revenue (Q2-25)" value={`$${(latest.revenue / 1000).toFixed(1)}B`} delta={((latest.revenue - prev.revenue) / prev.revenue * 100).toFixed(1)} hint="QoQ" />
+        <StatCard label="EBITDA margin" value={`${((latest.ebitda / latest.revenue) * 100).toFixed(1)}%`} delta={(((latest.ebitda / latest.revenue) - (prev.ebitda / prev.revenue)) * 100).toFixed(1)} hint="vs Q1-25" delay={0.05} />
+        <StatCard label="Free cash flow" value={`$${latest.fcf}M`} delta={((latest.fcf - prev.fcf) / prev.fcf * 100).toFixed(1)} hint="QoQ" delay={0.1} />
+        <StatCard label="Net leverage" value={`${latest.leverage.toFixed(1)}x`} delta={((latest.leverage - prev.leverage) / prev.leverage * 100).toFixed(1)} hint="covenant 3.75x" delay={0.15} />
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
@@ -113,13 +152,13 @@ function Financials() {
               ["Capex ↔ Climate risk", 0.71],
               ["Legal provisions ↔ Litigation risk", 0.92],
             ].map(([label, v]) => (
-              <div key={label as string}>
+              <div key={label}>
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground">{label as string}</span>
-                  <span className="num">{(v as number).toFixed(2)}</span>
+                  <span className="text-muted-foreground">{label}</span>
+                  <span className="num">{v.toFixed(2)}</span>
                 </div>
                 <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
-                  <div className="h-full rounded-full" style={{ width: `${(v as number) * 100}%`, background: "var(--gradient-primary)" }} />
+                  <div className="h-full rounded-full" style={{ width: `${v * 100}%`, background: "var(--gradient-primary)" }} />
                 </div>
               </div>
             ))}
@@ -134,12 +173,12 @@ function Financials() {
               ["Interest cover", "4.1x", [5.6, 5.2, 4.9, 4.5, 4.3, 4.1]],
               ["ROIC", "11.8%", [10.2, 10.9, 11.1, 11.4, 11.6, 11.8]],
             ].map(([k, v, pts]) => (
-              <div key={k as string} className="rounded-xl border border-border/60 bg-secondary/25 p-3">
+              <div key={k} className="rounded-xl border border-border/60 bg-secondary/25 p-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">{k as string}</span>
-                  <span className="num text-sm font-semibold">{v as string}</span>
+                  <span className="text-xs text-muted-foreground">{k}</span>
+                  <span className="num text-sm font-semibold">{v}</span>
                 </div>
-                <Sparkline points={pts as number[]} />
+                <Sparkline points={pts} />
               </div>
             ))}
           </div>

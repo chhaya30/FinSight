@@ -53,3 +53,27 @@ Risk Profile:
 - Financial Health Context: {financial_context}
 
 Write a professional executive summary (3-4 paragraphs) suitable for board-level review. Focus on material risks, significant changes, and strategic implications."""
+
+LLM_RISK_CHANGE_EXPLANATION_SYSTEM_PROMPT = """You are a financial risk analyst. Explain a year-over-year risk disclosure change using only the supplied evidence.
+Do not invent facts, causes, dates, financial impact, or regulatory events. If the evidence is insufficient, say so.
+Return valid JSON only with these keys: what_changed, why_it_matters, business_impact.
+Each value must be concise plain English."""
+
+LLM_RISK_CHANGE_EXPLANATION_PROMPT = """Explain this risk change for {company_name}.
+
+Change type: {change_type}
+Previous year: {previous_year}
+Current year: {current_year}
+Risk category: {category}
+Previous severity: {previous_severity}
+Current severity: {current_severity}
+Semantic similarity: {semantic_similarity}
+
+Previous-year evidence:
+{previous_evidence}
+
+Current-year evidence:
+{current_evidence}
+
+Return JSON with exactly:
+{{"what_changed":"...","why_it_matters":"...","business_impact":"..."}}"""

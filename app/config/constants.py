@@ -33,8 +33,8 @@ class RiskSeverity(str, Enum):
 class ChangeType(str, Enum):
     NEW = "NEW"
     REMOVED = "REMOVED"
-    SEVERITY_UP = "SEVERITY_UP"
-    SEVERITY_DOWN = "SEVERITY_DOWN"
+    ESCALATED = "ESCALATED"
+    DE_ESCALATED = "DE-ESCALATED"
     MODIFIED = "MODIFIED"
 
 
@@ -261,18 +261,23 @@ SEVERITY_COLORS: dict[RiskSeverity, str] = {
 CHANGE_TYPE_COLORS: dict[ChangeType, str] = {
     ChangeType.NEW: "#dc2626",
     ChangeType.REMOVED: "#6b7280",
-    ChangeType.SEVERITY_UP: "#ea580c",
-    ChangeType.SEVERITY_DOWN: "#16a34a",
+    ChangeType.ESCALATED: "#ea580c",
+    ChangeType.DE_ESCALATED: "#16a34a",
     ChangeType.MODIFIED: "#2563eb",
 }
 
-DEFAULT_CHUNK_SIZE = 1000
-DEFAULT_CHUNK_OVERLAP = 200
+DEFAULT_CHUNK_SIZE = 512
+DEFAULT_CHUNK_OVERLAP = 50
 MIN_CHUNK_SIZE = 100
 MAX_CHUNKS_PER_DOC = 500
 
-SIMILARITY_THRESHOLD_NEW_RISK = 0.75
-SIMILARITY_THRESHOLD_MATCH = 0.85
+# Comparison policy from the PRD:
+# < 0.40 is a weak semantic relationship, 0.40-0.70 is a review band,
+# and >= 0.70 is a strong semantic match. Composite confidence remains the
+# final gate because category and title signals are also used.
+SIMILARITY_THRESHOLD_NEW_RISK = 0.40
+SIMILARITY_THRESHOLD_MATCH = 0.70
+MATCH_CONFIDENCE_THRESHOLD = 0.55
 SEVERITY_CHANGE_THRESHOLD = 1
 
 MAX_RETRIES = 3

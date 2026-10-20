@@ -1,9 +1,13 @@
 import pytest
 import asyncio
+import os
 from typing import AsyncGenerator
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.pool import StaticPool
+
+# Set test environment variable so test routes are registered
+os.environ["TESTING"] = "true"
 
 from app.api.main import app
 from app.db.base import Base

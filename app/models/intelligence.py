@@ -135,3 +135,11 @@ class ExecutiveSummaryResponse(BaseModel):
     ai_narrative: str
     confidence_score: float
     generated_at: datetime
+
+
+class ExecutivePDFRequest(BaseModel):
+    company_id: UUID
+    year: int | None = None
+    include_evolution: bool = True
+    include_financial: bool = True
+    include_news: bool = True
