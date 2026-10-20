@@ -68,7 +68,7 @@ async def list_risk_explorer_items(
 
     company_by_id = {company.id: company for company in companies}
     available_categories = sorted({risk.category for risk in risks})
-    available_severities = sorted({risk.severity for risk in risks})
+    available_severities = sorted({risk.severity_label for risk in risks if risk.severity_label})
     available_years = sorted({report.fiscal_year for report in reports}, reverse=True)
     rows: list[RiskExplorerItem] = []
     available_statuses = {"NEW", "REMOVED", "UNCHANGED", "MODIFIED", "ESCALATED", "DE-ESCALATED", "UNCOMPARED"}
@@ -88,7 +88,7 @@ async def list_risk_explorer_items(
         evolution_records: list[RiskEvolutionRecord] = []
         if previous_report:
             evolution_records, _, _ = await compare_report_risks(
-                previous_report, current_report, previous_risks, current_risks
+                previous_report, current_report, previous_risks, current_risks, session=db
             )
         evolution_index = evolution_by_risk_id(evolution_records)
 
@@ -98,18 +98,19 @@ async def list_risk_explorer_items(
             risk_status = record.change_type.value if record else "UNCOMPARED"
             if category and risk.category.casefold() != category.casefold():
                 continue
-            if severity and risk.severity.casefold() != severity.casefold():
+            if severity and risk.severity_label and risk.severity_label.casefold() != severity.casefold():
                 continue
             if status and risk_status.casefold() != status.casefold():
                 continue
-            if search and search.casefold() not in f"{company.name} {risk.category} {risk.severity} {risk.summary}".casefold():
+            search_text = f"{company.name} {risk.category} {risk.severity_label or ''} {risk.risk_summary or ''}"
+            if search and search.casefold() not in search_text.casefold():
                 continue
             rows.append(RiskExplorerItem(
                 risk_id=UUID(risk.id), company_id=UUID(company.id), company_name=company.name,
                 report_id=UUID(current_report.id), year=current_report.fiscal_year,
                 comparison_year=current_report.fiscal_year,
-                category=risk.category, severity=risk.severity, status=risk_status,
-                title=risk.summary[:120], summary=risk.summary, confidence=risk.confidence_score,
+                category=risk.category, severity=risk.severity_label or str(risk.severity), status=risk_status,
+                title=risk.risk_summary[:120] if risk.risk_summary else "", summary=risk.risk_summary, confidence=risk.confidence_score,
                 source_document=current_report.source_file, source_page=risk.source_page,
                 previous_risk_id=UUID(record.year_1_risk_id) if record and record.year_1_risk_id else None,
             ))
@@ -122,18 +123,19 @@ async def list_risk_explorer_items(
                 continue
             if category and removed.category.casefold() != category.casefold():
                 continue
-            if severity and removed.severity.casefold() != severity.casefold():
+            if severity and removed.severity_label and removed.severity_label.casefold() != severity.casefold():
                 continue
             if status and status.casefold() != "removed":
                 continue
-            if search and search.casefold() not in f"{company.name} {removed.category} {removed.severity} {removed.summary}".casefold():
+            search_text = f"{company.name} {removed.category} {removed.severity_label or ''} {removed.risk_summary or ''}"
+            if search and search.casefold() not in search_text.casefold():
                 continue
             rows.append(RiskExplorerItem(
                 risk_id=UUID(removed.id), company_id=UUID(company.id), company_name=company.name,
                 report_id=UUID(previous_report.id), year=previous_report.fiscal_year,
                 comparison_year=current_report.fiscal_year,
-                category=removed.category, severity=removed.severity, status="REMOVED",
-                title=removed.summary[:120], summary=removed.summary, confidence=removed.confidence_score,
+                category=removed.category, severity=removed.severity_label or str(removed.severity), status="REMOVED",
+                title=removed.risk_summary[:120] if removed.risk_summary else "", summary=removed.risk_summary, confidence=removed.confidence_score,
                 source_document=previous_report.source_file, source_page=removed.source_page,
             ))
 
@@ -159,10 +161,10 @@ async def get_risk_explorer_detail(
     risk = await db.get(RiskItem, str(risk_id))
     if risk is None:
         raise HTTPException(status_code=404, detail="Risk not found")
-    report = await db.get(Report, risk.report_id)
+    report = await db.get(Report, str(risk.report_id))
     if report is None:
         raise HTTPException(status_code=404, detail="Risk report not found")
-    company = await db.get(Company, report.company_id)
+    company = await db.get(Company, str(report.company_id))
     if company is None:
         raise HTTPException(status_code=404, detail="Risk company not found")
 
@@ -197,6 +199,7 @@ async def get_risk_explorer_detail(
         records, explanations, financial_analysis = await compare_report_risks(
             previous_report, current_report, previous_risks, current_risks,
             include_financial=True,
+            session=db,
         )
     elif current_report.id != report.id:
         # The selected risk is in the earliest report; compare it with its next report.
@@ -206,6 +209,7 @@ async def get_risk_explorer_detail(
         records, explanations, financial_analysis = await compare_report_risks(
             previous_report, current_report, previous_risks, current_risks,
             include_financial=True,
+            session=db,
         )
 
     record = next((item for item in records if risk.id in (item.year_1_risk_id, item.year_2_risk_id)), None)
@@ -230,17 +234,17 @@ async def get_risk_explorer_detail(
             )).scalars().all()
             chunk = next((c for c in chunks if c.page_start is not None and c.page_end is not None
                           and c.page_start <= item.source_page <= c.page_end), None)
-        text = item.source_paragraph or item.summary
+        text = item.source_paragraph or item.risk_summary or ""
         evidence = RiskExplorerEvidence(
             document=source_report.source_file,
             source_url=source_report.source_url or (item.extra_metadata or {}).get("source_url"),
             year=source_report.fiscal_year,
             page=item.source_page, chunk_id=UUID(chunk.id) if chunk else None,
-            source="risk_items.source_paragraph" if item.source_paragraph else "risk_items.summary",
+            source="risk_items.source_paragraph" if item.source_paragraph else "risk_items.risk_summary",
             text=text,
         )
         assessment = assess_classification_confidence(
-            category=item.category, severity=item.severity,
+            category=item.category, severity=item.severity_label or str(item.severity),
             stored_confidence=item.confidence_score, evidence_text=text,
             source_document=source_report.source_url or source_report.source_file, page=item.source_page,
             chunk_available=chunk is not None,
@@ -256,8 +260,8 @@ async def get_risk_explorer_detail(
         )
         return RiskExplorerRiskVersion(
             risk_id=UUID(item.id), year=source_report.fiscal_year, category=item.category,
-            severity=item.severity, confidence=item.confidence_score,
-            title=item.summary[:120], summary=item.summary, evidence=evidence,
+            severity=item.severity_label or str(item.severity), confidence=item.confidence_score,
+            title=item.risk_summary[:120] if item.risk_summary else "", summary=item.risk_summary, evidence=evidence,
             classification_assessment=confidence_detail,
         )
 

@@ -21,6 +21,9 @@ class DocumentMetadata(BaseModel):
     file_path: Path
     total_pages: int = Field(..., ge=0)
     file_size_bytes: int = Field(..., ge=0)
+    extraction_method: str | None = None
+    ocr_used: bool = False
+    processing_error: str | None = None
 
 
 class ExtractedDocument(BaseModel):
@@ -73,14 +76,18 @@ class DocumentListResponse(BaseModel):
 
 
 class DocumentUploadResponse(BaseModel):
-    document: DocumentResponse
-    message: str
+    document_id: UUID
+    company_id: UUID
+    report_year: int
+    status: str
 
 
 class DocumentProcessingStatus(BaseModel):
     document_id: UUID
     status: str
     progress: float | None = Field(None, ge=0, le=100)
+    chunks_created: int | None = None
+    risks_extracted: int | None = None
     message: str | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None

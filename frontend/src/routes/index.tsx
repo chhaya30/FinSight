@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { AlertTriangle, ArrowUpRight, FileSearch, RefreshCw, WalletCards } from "lucide-react";
 import { GlassCard, PageHeader, StatCard } from "@/components/ui-kit";
+import { api } from "@/lib/api";
 
 type EvidenceReference = {
   side: "year_1" | "year_2";
@@ -99,32 +100,21 @@ function Dashboard() {
   const [loading, setLoading] = useState(Boolean(companyId));
   const [error, setError] = useState<string | null>(null);
 
-  const loadDashboard = useCallback(() => {
+  const loadDashboard = useCallback(async () => {
     if (!companyId) {
       setLoading(false);
       return;
     }
     setLoading(true);
     setError(null);
-    const base = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
-    const query = new URLSearchParams({
-      company_id: companyId,
-      year_previous: String(previous),
-      year_current: String(current),
-    });
-    fetch(`${base}/dashboard/executive?${query}`)
-      .then(async (response) => {
-        if (!response.ok)
-          throw new Error(
-            (await response.text()) || `Dashboard request failed (${response.status})`,
-          );
-        return response.json() as Promise<DashboardData>;
-      })
-      .then(setData)
-      .catch((reason: unknown) =>
-        setError(reason instanceof Error ? reason.message : "Dashboard request failed"),
-      )
-      .finally(() => setLoading(false));
+    try {
+      const data = await api.dashboard.getExecutive(companyId, previous, current);
+      setData(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Dashboard request failed");
+    } finally {
+      setLoading(false);
+    }
   }, [companyId, current, previous]);
 
   useEffect(() => loadDashboard(), [loadDashboard]);

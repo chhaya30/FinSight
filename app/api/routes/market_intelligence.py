@@ -64,6 +64,7 @@ async def get_market_intelligence(
             current,
             previous_result.scalars().all(),
             current_result.scalars().all(),
+            session=db,
         )
     return await MarketIntelligenceService(provider).fetch_for_company(
         str(company.id), company.name, records

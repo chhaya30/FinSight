@@ -26,7 +26,7 @@ async def extract_risks(
     request: RiskExtractionRequest,
     db: AsyncSession = Depends(get_db_session),
 ):
-    report = await db.get(Report, request.report_id, options=[selectinload(Report.company)])
+    report = await db.get(Report, str(request.report_id), options=[selectinload(Report.company)])
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
 
@@ -109,7 +109,7 @@ async def get_report_risks(
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db_session),
 ):
-    report = await db.get(Report, report_id)
+    report = await db.get(Report, str(report_id))
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
 
@@ -149,7 +149,7 @@ async def get_risk(
 ):
     from app.db.base import RiskItem as RiskItemModel
 
-    risk = await db.get(RiskItemModel, risk_id)
+    risk = await db.get(RiskItemModel, str(risk_id))
     if not risk:
         raise HTTPException(status_code=404, detail="Risk not found")
 

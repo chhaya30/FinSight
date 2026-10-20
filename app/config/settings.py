@@ -74,8 +74,9 @@ class Settings(BaseSettings):
     SEC_EDGAR_PEER_CANDIDATES: int = Field(default=24, ge=1, le=50)
     SEC_EDGAR_MAX_PEERS: int = Field(default=4, ge=1, le=10)
 
-    CHUNK_SIZE: int = 1000
-    CHUNK_OVERLAP: int = 200
+    # PRD contract: 512-token windows with 50-token overlap.
+    CHUNK_SIZE: int = 512
+    CHUNK_OVERLAP: int = 50
     MAX_CHUNKS_PER_DOC: int = 500
 
     OCR_ENABLED: bool = True

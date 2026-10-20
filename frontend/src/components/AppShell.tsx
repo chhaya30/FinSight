@@ -103,19 +103,22 @@ function AssistantPanel({ open, onClose }: { open: boolean; onClose: () => void 
           exit={{ x: 420, opacity: 0 }}
           transition={{ type: "spring", stiffness: 260, damping: 30 }}
           className="panel fixed bottom-4 right-4 top-20 z-50 flex w-[min(380px,calc(100vw-2rem))] flex-col overflow-hidden"
+          role="dialog"
+          aria-label="Risk Copilot"
+          aria-modal="true"
         >
           <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
             <div className="flex items-center gap-2">
-              <span className="grid size-7 place-items-center rounded-lg" style={{ background: "var(--gradient-primary)" }}>
-                <Bot className="size-4 text-primary-foreground" />
+              <span className="grid size-7 place-items-center rounded-lg" style={{ background: "var(--gradient-primary)" }} aria-hidden="true">
+                <Bot className="size-4 text-primary-foreground" aria-hidden="true" />
               </span>
               <div>
                 <p className="text-sm font-medium">Risk Copilot</p>
                 <p className="num text-[10px] text-muted-foreground">grounded on 1,284 filings</p>
               </div>
             </div>
-            <button onClick={onClose} className="rounded-md p-1 text-muted-foreground hover:bg-secondary">
-              <X className="size-4" />
+            <button onClick={onClose} className="rounded-md p-1 text-muted-foreground hover:bg-secondary" aria-label="Close Risk Copilot">
+              <X className="size-4" aria-hidden="true" />
             </button>
           </div>
           <div className="flex-1 space-y-3 overflow-y-auto p-4 text-sm">
@@ -144,8 +147,11 @@ function AssistantPanel({ open, onClose }: { open: boolean; onClose: () => void 
               <input
                 placeholder="Ask the copilot…"
                 className="num flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                aria-label="Ask the copilot"
               />
-              <Send className="size-4 text-primary" />
+              <button className="text-primary" aria-label="Send message">
+                <Send className="size-4" aria-hidden="true" />
+              </button>
             </div>
           </div>
         </motion.aside>
@@ -180,6 +186,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="relative min-h-screen">
+      <a href="#main-content" className="skip-link">Skip to main content</a>
       <div className="grid-bg pointer-events-none fixed inset-0 opacity-[0.35]" />
       <div
         className="pointer-events-none fixed inset-x-0 top-0 h-[420px]"
@@ -219,25 +226,27 @@ export function AppShell({ children }: { children: ReactNode }) {
                   {group.items.map((item) => {
                     const active = pathname === item.to;
                     return (
-                      <Link
-                        key={item.to}
-                        to={item.to}
-                        className={cn(
-                          "group relative flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm transition-colors",
-                          active
-                            ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                            : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
-                        )}
-                      >
-                        {active && (
-                          <motion.span
-                            layoutId="nav-active"
-                            className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-primary"
-                          />
-                        )}
-                        <item.icon className={cn("size-4 shrink-0", active && "text-primary")} />
-                        {!collapsed && <span className="truncate">{item.label}</span>}
-                      </Link>
+<Link
+  key={item.to}
+  to={item.to}
+  className={cn(
+    "group relative flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm transition-colors",
+    active
+      ? "bg-sidebar-accent text-sidebar-accent-foreground"
+      : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+  )}
+  aria-current={active ? "page" : undefined}
+  aria-label={collapsed ? item.label : undefined}
+>
+  {active && (
+    <motion.span
+      layoutId="nav-active"
+      className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-primary"
+    />
+  )}
+  <item.icon className={cn("size-4 shrink-0", active && "text-primary")} aria-hidden="true" />
+  {!collapsed && <span className="truncate">{item.label}</span>}
+</Link>
                     );
                   })}
                 </div>
@@ -246,71 +255,79 @@ export function AppShell({ children }: { children: ReactNode }) {
           </nav>
 
           <div className="border-t border-border/60 p-3">
-            <button
-              onClick={() => setCollapsed((c) => !c)}
-              className="flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-sm text-muted-foreground hover:bg-sidebar-accent/60"
-            >
-              {collapsed ? <PanelLeft className="size-4" /> : <PanelLeftClose className="size-4" />}
-              {!collapsed && <span>Collapse</span>}
-            </button>
+<button
+  onClick={() => setCollapsed((c) => !c)}
+  className="flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-sm text-muted-foreground hover:bg-sidebar-accent/60"
+  aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+  aria-expanded={!collapsed}
+>
+  {collapsed ? <PanelLeft className="size-4" aria-hidden="true" /> : <PanelLeftClose className="size-4" aria-hidden="true" />}
+  {!collapsed && <span>Collapse</span>}
+</button>
           </div>
         </motion.aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="sticky top-0 z-40 flex h-16 items-center gap-3 border-b border-border/60 bg-background/70 px-4 backdrop-blur-xl md:px-6">
-            <span className="grid size-8 place-items-center rounded-lg text-xs font-bold lg:hidden" style={{ background: "var(--gradient-primary)", color: "var(--primary-foreground)" }}>
-              GR
-            </span>
-            <button
-              onClick={() => setPaletteOpen(true)}
-              className="flex flex-1 items-center gap-2 rounded-xl border border-border/70 bg-secondary/40 px-3 py-2 text-sm text-muted-foreground transition-colors hover:border-primary/40 md:max-w-md"
-            >
-              <Search className="size-4" />
-              <span className="truncate">Search companies, risks, filings…</span>
-              <span className="num ml-auto hidden items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-[10px] md:flex">
-                <CommandIcon className="size-3" />K
-              </span>
-            </button>
-            <div className="ml-auto flex items-center gap-1.5">
-              <button
-                onClick={() => setAssistant((a) => !a)}
-                className="num hidden items-center gap-2 rounded-xl border border-primary/40 bg-primary/10 px-3 py-2 text-xs text-primary transition-colors hover:bg-primary/20 sm:flex"
-              >
-                <Bot className="size-4" /> Copilot
-              </button>
-              <button className="relative rounded-lg p-2 text-muted-foreground hover:bg-secondary">
-                <Bell className="size-4" />
-                <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-destructive" />
-              </button>
-              <button onClick={toggle} className="rounded-lg p-2 text-muted-foreground hover:bg-secondary">
-                {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
-              </button>
-              <Link
-                to="/auth"
-                className="ml-1 grid size-8 place-items-center rounded-full border border-border bg-secondary text-[11px] font-semibold"
-              >
-                AN
-              </Link>
-            </div>
-          </header>
+<header className="sticky top-0 z-40 flex h-16 items-center gap-3 border-b border-border/60 bg-background/70 px-4 backdrop-blur-xl md:px-6">
+  <span className="grid size-8 place-items-center rounded-lg text-xs font-bold lg:hidden" style={{ background: "var(--gradient-primary)", color: "var(--primary-foreground)" }} aria-hidden="true">
+    GR
+  </span>
+  <button
+    onClick={() => setPaletteOpen(true)}
+    className="flex flex-1 items-center gap-2 rounded-xl border border-border/70 bg-secondary/40 px-3 py-2 text-sm text-muted-foreground transition-colors hover:border-primary/40 md:max-w-md"
+    aria-label="Open command palette (⌘K)"
+    type="button"
+  >
+    <Search className="size-4" aria-hidden="true" />
+    <span className="truncate">Search companies, risks, filings…</span>
+    <span className="num ml-auto hidden items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-[10px] md:flex">
+      <CommandIcon className="size-3" aria-hidden="true" />K
+    </span>
+  </button>
+  <div className="ml-auto flex items-center gap-1.5">
+    <button
+      onClick={() => setAssistant((a) => !a)}
+      className="num hidden items-center gap-2 rounded-xl border border-primary/40 bg-primary/10 px-3 py-2 text-xs text-primary transition-colors hover:bg-primary/20 sm:flex"
+      aria-label="Open Risk Copilot (⌘J)"
+    >
+      <Bot className="size-4" aria-hidden="true" /> Copilot
+    </button>
+    <button className="relative rounded-lg p-2 text-muted-foreground hover:bg-secondary" aria-label="Notifications">
+      <Bell className="size-4" aria-hidden="true" />
+      <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-destructive" aria-hidden="true" />
+    </button>
+    <button onClick={toggle} className="rounded-lg p-2 text-muted-foreground hover:bg-secondary" aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}>
+      {dark ? <Sun className="size-4" aria-hidden="true" /> : <Moon className="size-4" aria-hidden="true" />}
+    </button>
+    <Link
+      to="/auth"
+      className="ml-1 grid size-8 place-items-center rounded-full border border-border bg-secondary text-[11px] font-semibold"
+      aria-label="Account settings"
+    >
+      AN
+    </Link>
+  </div>
+</header>
 
-          <main className="min-w-0 flex-1 px-4 py-6 md:px-6 lg:px-8">{children}</main>
+          <main id="main-content" className="min-w-0 flex-1 px-4 py-6 md:px-6 lg:px-8">{children}</main>
 
-          <nav className="sticky bottom-0 z-40 flex gap-1 overflow-x-auto border-t border-border/60 bg-background/85 px-2 py-2 backdrop-blur-xl lg:hidden">
-            {allNav.slice(0, 6).map((item) => (
-              <Link
-                key={item.to}
-                to={item.to}
-                className={cn(
-                  "flex min-w-16 flex-col items-center gap-1 rounded-lg px-2 py-1.5 text-[10px]",
-                  pathname === item.to ? "text-primary" : "text-muted-foreground",
-                )}
-              >
-                <item.icon className="size-4" />
-                {item.label.split(" ")[0]}
-              </Link>
-            ))}
-          </nav>
+<nav className="sticky bottom-0 z-40 flex gap-1 overflow-x-auto border-t border-border/60 bg-background/85 px-2 py-2 backdrop-blur-xl lg:hidden" aria-label="Main navigation">
+  {allNav.slice(0, 6).map((item) => (
+    <Link
+      key={item.to}
+      to={item.to}
+      className={cn(
+        "flex min-w-16 flex-col items-center gap-1 rounded-lg px-2 py-1.5 text-[10px]",
+        pathname === item.to ? "text-primary" : "text-muted-foreground",
+      )}
+      aria-current={pathname === item.to ? "page" : undefined}
+      aria-label={item.label}
+    >
+      <item.icon className="size-4" aria-hidden="true" />
+      <span className="truncate">{item.label.split(" ")[0]}</span>
+    </Link>
+  ))}
+</nav>
         </div>
       </div>
 

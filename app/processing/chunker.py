@@ -1,4 +1,5 @@
 import hashlib
+import re
 from dataclasses import dataclass
 
 from app.config.constants import (
@@ -12,6 +13,24 @@ from app.config.settings import get_settings
 from app.processing.section_detector import DocumentSection
 
 logger = get_logger(__name__)
+
+
+def tokenize(text: str) -> list[str]:
+    """Return stable whitespace/punctuation tokens for chunk sizing.
+
+    This keeps chunking deterministic without adding another tokenizer dependency.
+    The same tokenizer is used when persisting ``token_count``.
+    """
+    return re.findall(r"\w+(?:['’-]\w+)*|[^\w\s]", text, flags=re.UNICODE)
+
+
+def detokenize(tokens: list[str]) -> str:
+    text = ""
+    for token in tokens:
+        if text and re.match(r"[\w'’-]", token) and re.search(r"[\w'’-]$", text):
+            text += " "
+        text += token
+    return text.strip()
 
 
 @dataclass
@@ -53,28 +72,26 @@ class Chunker:
         section_title: str | None = None,
         section_level: int | None = None,
     ) -> list[TextChunk]:
-        if not text or len(text.strip()) < self.min_chunk_size:
+        tokens = tokenize(text or "")
+        if not tokens:
             return []
 
         chunks = []
         chunk_index = 0
         start = 0
-        text_len = len(text)
+        token_count = len(tokens)
 
-        while start < text_len and chunk_index < self.max_chunks:
-            end = min(start + self.chunk_size, text_len)
+        while start < token_count and chunk_index < self.max_chunks:
+            end = min(start + self.chunk_size, token_count)
+            chunk_tokens = tokens[start:end]
+            chunk_text = detokenize(chunk_tokens)
 
-            if end < text_len:
-                end = self._find_break_point(text, start, end)
-
-            chunk_text = text[start:end].strip()
-
-            if len(chunk_text) >= self.min_chunk_size:
+            if chunk_tokens:
                 chunk = TextChunk(
                     text=chunk_text,
                     chunk_index=chunk_index,
-                    start_char=start,
-                    end_char=end,
+                    start_char=0,
+                    end_char=len(chunk_text),
                     start_page=start_page,
                     end_page=end_page,
                     section_title=section_title,
@@ -83,7 +100,7 @@ class Chunker:
                 chunks.append(chunk)
                 chunk_index += 1
 
-            if end == text_len:
+            if end == token_count:
                 break
 
             start = end - self.chunk_overlap
@@ -117,12 +134,6 @@ class Chunker:
 
         self._reindex_chunks(all_chunks)
         return all_chunks[: self.max_chunks]
-
-    def _find_break_point(self, text: str, start: int, end: int) -> int:
-        for i in range(end, max(start + self.min_chunk_size, end - 100), -1):
-            if text[i] in ".!?\n":
-                return i + 1
-        return end
 
     def _reindex_chunks(self, chunks: list[TextChunk]) -> None:
         for i, chunk in enumerate(chunks):
@@ -237,7 +248,15 @@ def chunk_document(
     chunker = create_chunker(strategy, **kwargs)
 
     if pages:
-        full_text = "\n\n".join(pages)
-        return chunker.chunk_text(full_text)
+        all_chunks: list[TextChunk] = []
+        for page_number, page in enumerate(pages, start=1):
+            page_chunks = chunker.chunk_text(
+                page,
+                start_page=page_number,
+                end_page=page_number,
+            )
+            all_chunks.extend(page_chunks)
+        chunker._reindex_chunks(all_chunks)
+        return all_chunks[: chunker.max_chunks]
 
     return chunker.chunk_text(text)

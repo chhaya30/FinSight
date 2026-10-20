@@ -1,14 +1,16 @@
 from app.api.routes._phase2_helpers import load_phase2_records
 from app.models.comparison import RiskEvolutionRecord
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 async def compare_report_risks(
-    previous_report, current_report, previous_risks, current_risks, include_financial=False
+    previous_report, current_report, previous_risks, current_risks, include_financial=False, session: AsyncSession | None = None
 ):
     """Use the Phase 2 comparison, explainability, and financial services for a report pair."""
     return await load_phase2_records(
         previous_report, current_report, previous_risks, current_risks,
         include_financial=include_financial,
+        session=session,
     )
 
 

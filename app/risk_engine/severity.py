@@ -2,6 +2,7 @@ from enum import Enum
 
 from app.config.logging import get_logger
 from app.risk_engine.extractor import ExtractedRisk
+from app.taxonomy.classifier_rules import SeverityRules
 
 logger = get_logger(__name__)
 
@@ -19,6 +20,15 @@ SEVERITY_WEIGHTS = {
     SeverityLevel.HIGH: 4,
     SeverityLevel.MEDIUM: 3,
     SeverityLevel.LOW: 2,
+    SeverityLevel.INFORMATIONAL: 1,
+}
+
+# 0-10 normalized severity scores
+SEVERITY_SCORES = {
+    SeverityLevel.CRITICAL: 9,
+    SeverityLevel.HIGH: 7,
+    SeverityLevel.MEDIUM: 5,
+    SeverityLevel.LOW: 3,
     SeverityLevel.INFORMATIONAL: 1,
 }
 
@@ -69,6 +79,10 @@ class SeverityAssessor:
     def get_weight(self, severity: str) -> int:
         return SEVERITY_WEIGHTS.get(SeverityLevel(severity), 3)
 
+    def get_score(self, severity: str) -> int:
+        """Get 0-10 normalized severity score."""
+        return SEVERITY_SCORES.get(SeverityLevel(severity), 5)
+
     def get_description(self, severity: str) -> str:
         return SEVERITY_DESCRIPTIONS.get(SeverityLevel(severity), "")
 
@@ -77,6 +91,33 @@ class SeverityAssessor:
         idx1 = order.index(SeverityLevel(severity1))
         idx2 = order.index(SeverityLevel(severity2))
         return idx1 - idx2
+
+    def calculate_risk_score(
+        self,
+        severity: str,
+        confidence: float,
+        new_risks_count: int = 0,
+        escalated_risks_count: int = 0,
+    ) -> float:
+        """
+        Calculate overall risk score.
+        
+        Formula:
+        risk score = severity_weight + confidence_weight + new_risks_bonus + escalated_risks_bonus
+        
+        Where:
+        - severity_weight: 0-10 based on severity level (informational=1, low=3, medium=5, high=7, critical=9)
+        - confidence_weight: confidence * 10 (0-10)
+        - new_risks_bonus: new_risks_count * 0.5 (capped at 5)
+        - escalated_risks_bonus: escalated_risks_count * 1.0 (capped at 5)
+        """
+        severity_score = self.get_score(severity)
+        confidence_score = confidence * 10
+        new_risks_bonus = min(new_risks_count * 0.5, 5.0)
+        escalated_risks_bonus = min(escalated_risks_count * 1.0, 5.0)
+        
+        total = severity_score + confidence_score + new_risks_bonus + escalated_risks_bonus
+        return round(total, 2)
 
 
 def assess_severity(risks: list[ExtractedRisk]) -> list[ExtractedRisk]:

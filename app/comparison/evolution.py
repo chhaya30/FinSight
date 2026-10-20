@@ -1,4 +1,5 @@
 from app.config.logging import get_logger
+from app.config.constants import MATCH_CONFIDENCE_THRESHOLD
 from app.models.comparison import (
     AttributeChange,
     EvolutionChangeType,
@@ -38,7 +39,7 @@ def parse_dimension_level(value: str | None) -> int | None:
 class RiskEvolutionClassifier:
     """Deterministic classifier for Year-over-Year risk evolution (Phase 2.1.3)."""
 
-    def __init__(self, min_confidence_threshold: float = 0.55):
+    def __init__(self, min_confidence_threshold: float = MATCH_CONFIDENCE_THRESHOLD):
         self.min_confidence_threshold = min_confidence_threshold
 
     def classify_evolution(

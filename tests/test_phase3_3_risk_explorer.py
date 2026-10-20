@@ -26,18 +26,21 @@ async def test_risk_explorer_filters_and_returns_real_db_risk(db_session, monkey
     db_session.add_all([previous, current])
     await db_session.flush()
     old_risk = RiskItem(
-        report_id=previous.id, category="Credit", severity="MEDIUM", confidence_score=0.78,
-        summary="Credit exposure tied to commercial real estate", source_page=41,
+        report_id=previous.id, company_id=company.id, category="Credit", severity=4, severity_label="MEDIUM", confidence_score=0.78,
+        risk_title="Credit exposure tied to commercial real estate",
+        risk_summary="Credit exposure tied to commercial real estate", source_page=41,
         source_paragraph="Commercial real estate borrowers may not repay.",
     )
     removed_risk = RiskItem(
-        report_id=previous.id, category="Operational", severity="LOW", confidence_score=0.69,
-        summary="Legacy branch processing exposure", source_page=58,
+        report_id=previous.id, company_id=company.id, category="Operational", severity=2, severity_label="LOW", confidence_score=0.69,
+        risk_title="Legacy branch processing exposure",
+        risk_summary="Legacy branch processing exposure", source_page=58,
         source_paragraph="Legacy processing systems may cause delays.",
     )
     new_risk = RiskItem(
-        report_id=current.id, category="Credit", severity="HIGH", confidence_score=0.91,
-        summary="Credit losses may rise for commercial real estate borrowers", source_page=44,
+        report_id=current.id, company_id=company.id, category="Credit", severity=5, severity_label="HIGH", confidence_score=0.91,
+        risk_title="Credit losses may rise for commercial real estate borrowers",
+        risk_summary="Credit losses may rise for commercial real estate borrowers", source_page=44,
         source_paragraph="Our commercial real estate portfolio remains subject to elevated losses.",
     )
     db_session.add_all([old_risk, removed_risk, new_risk])
@@ -54,7 +57,7 @@ async def test_risk_explorer_filters_and_returns_real_db_risk(db_session, monkey
                                    text=old_risk.source_paragraph),
         evidence_current=RiskEvidence(document_id="jpm-2025.pdf", report_year=2025, page=44,
                                       text=new_risk.source_paragraph),
-        metadata={"title_y1": old_risk.summary, "title_y2": new_risk.summary,
+        metadata={"title_y1": old_risk.risk_summary, "title_y2": new_risk.risk_summary,
                   "category": new_risk.category},
     )
     removed_record = RiskEvolutionRecord(
@@ -63,7 +66,7 @@ async def test_risk_explorer_filters_and_returns_real_db_risk(db_session, monkey
         severity_prev="LOW",
         evidence_prev=RiskEvidence(document_id="jpm-2024.pdf", report_year=2024, page=58,
                                    text=removed_risk.source_paragraph),
-        metadata={"title_y1": removed_risk.summary, "category": removed_risk.category},
+        metadata={"title_y1": removed_risk.risk_summary, "category": removed_risk.category},
     )
 
     async def compare(*_args, **_kwargs):
@@ -134,13 +137,15 @@ async def test_risk_explorer_detail_returns_evolution_evidence_and_signals(
     db_session.add_all([previous, current])
     await db_session.flush()
     old_risk = RiskItem(
-        report_id=previous.id, category="Cybersecurity", severity="MEDIUM", confidence_score=0.8,
-        summary="Cybersecurity incident exposure", source_page=19,
+        report_id=previous.id, company_id=company.id, category="Cybersecurity", severity=4, severity_label="MEDIUM", confidence_score=0.8,
+        risk_title="Cybersecurity incident exposure",
+        risk_summary="Cybersecurity incident exposure", source_page=19,
         source_paragraph="A cyber incident could affect customer data.",
     )
     new_risk = RiskItem(
-        report_id=current.id, category="Cybersecurity", severity="HIGH", confidence_score=0.93,
-        summary="Third-party cyber incident exposure", source_page=22,
+        report_id=current.id, company_id=company.id, category="Cybersecurity", severity=5, severity_label="HIGH", confidence_score=0.93,
+        risk_title="Third-party cyber incident exposure",
+        risk_summary="Third-party cyber incident exposure", source_page=22,
         source_paragraph="Third-party providers may expose customer data to cyber incidents.",
     )
     db_session.add_all([old_risk, new_risk])
@@ -156,7 +161,7 @@ async def test_risk_explorer_detail_returns_evolution_evidence_and_signals(
                                    text=old_risk.source_paragraph),
         evidence_current=RiskEvidence(document_id="jpm-2025.pdf", report_year=2025, page=22,
                                       text=new_risk.source_paragraph),
-        metadata={"title_y1": old_risk.summary, "title_y2": new_risk.summary,
+        metadata={"title_y1": old_risk.risk_summary, "title_y2": new_risk.risk_summary,
                   "category": new_risk.category},
     )
 

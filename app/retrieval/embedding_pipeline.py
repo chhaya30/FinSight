@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.logging import get_logger
 from app.db.base import DocumentChunk
-from app.processing.chunker import TextChunk, chunk_document
+from app.processing.chunker import TextChunk, chunk_document, tokenize
 from app.retrieval.embeddings import EmbeddingProvider, create_embedding_provider
 from app.retrieval.vector_store import PGVectorStore, VectorDocument
 
@@ -109,7 +109,7 @@ class EmbeddingPipeline:
                 report_id=rep_id_str,
                 chunk_index=chunk.chunk_index,
                 content=chunk.text,
-                token_count=len(chunk.text.split()),
+                token_count=len(tokenize(chunk.text)),
                 page_start=chunk.start_page,
                 page_end=chunk.end_page,
                 section_title=chunk.section_title,

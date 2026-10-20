@@ -66,6 +66,7 @@ async def get_industry_intelligence(
             current,
             previous_result.scalars().all(),
             current_result.scalars().all(),
+            session=db,
         )
     return await IndustryIntelligenceService(provider).analyze_company(
         str(company.id), company.name, industry or company.sector, risk_records

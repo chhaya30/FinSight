@@ -1,3 +1,5 @@
+from typing import Literal
+
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -51,3 +53,15 @@ class ExecutiveDashboardResponse(BaseModel):
     risk_financial_correlations: list[RiskFinancialCorrelation] = Field(default_factory=list)
     evidence: list[EvidenceReference] = Field(default_factory=list)
     source_records: list[RiskEvolutionRecord] = Field(default_factory=list)
+
+
+class HeatmapCell(BaseModel):
+    category: str
+    severity: Literal["critical", "high", "medium", "low"]
+    count: int
+    score: float
+
+
+class HeatmapResponse(BaseModel):
+    cells: list[HeatmapCell]
+    total_risks: int

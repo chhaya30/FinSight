@@ -67,7 +67,7 @@ async def get_risk(
     db: AsyncSession = Depends(get_db_session),
 ):
     risk = await db.get(
-        RiskItem, risk_id, options=[selectinload(RiskItem.report).selectinload(Report.company)]
+        RiskItem, str(risk_id), options=[selectinload(RiskItem.report).selectinload(Report.company)]
     )
     if not risk:
         raise HTTPException(status_code=404, detail="Risk not found")
@@ -80,7 +80,7 @@ async def get_risk_evolution(
     risk_id: UUID,
     db: AsyncSession = Depends(get_db_session),
 ):
-    risk = await db.get(RiskItem, risk_id)
+    risk = await db.get(RiskItem, str(risk_id))
     if not risk:
         raise HTTPException(status_code=404, detail="Risk not found")
 

@@ -64,8 +64,9 @@ async def test_scanner_api_evaluates_db_risk_and_reports_missing_signals(db_sess
     db_session.add(report)
     await db_session.flush()
     risk = RiskItem(
-        report_id=report.id, category="Credit", severity="HIGH", confidence_score=0.88,
-        summary="Commercial real estate credit exposure", source_page=44,
+        report_id=report.id, company_id=company.id, category="Credit", severity=5, severity_label="HIGH", confidence_score=0.88,
+        risk_title="Commercial real estate credit exposure",
+        risk_summary="Commercial real estate credit exposure", source_page=44,
         source_paragraph="Commercial real estate borrowers may experience elevated losses.",
     )
     db_session.add(risk)
@@ -119,11 +120,13 @@ async def test_scanner_consumes_external_market_and_industry_signals(db_session,
     current = Report(company_id=company.id, fiscal_year=2025, source_file="jpm-2025.pdf")
     db_session.add_all([previous, current])
     await db_session.flush()
-    old_risk = RiskItem(report_id=previous.id, category="Cybersecurity", severity="MEDIUM",
-                        confidence_score=0.8, summary="Third-party cybersecurity vendor exposure",
+    old_risk = RiskItem(report_id=previous.id, company_id=company.id, category="Cybersecurity", severity=4, severity_label="MEDIUM",
+                        confidence_score=0.8, risk_title="Third-party cybersecurity vendor exposure",
+                        risk_summary="Third-party cybersecurity vendor exposure",
                         source_page=20, source_paragraph="Third-party vendors can expose customer data to cybersecurity incidents.")
-    risk = RiskItem(report_id=current.id, category="Cybersecurity", severity="HIGH",
-                    confidence_score=0.9, summary="Third-party cybersecurity vendor exposure increased",
+    risk = RiskItem(report_id=current.id, company_id=company.id, category="Cybersecurity", severity=5, severity_label="HIGH",
+                    confidence_score=0.9, risk_title="Third-party cybersecurity vendor exposure increased",
+                    risk_summary="Third-party cybersecurity vendor exposure increased",
                     source_page=22, source_paragraph="Third-party vendors may expose customer data through cybersecurity incidents.")
     db_session.add_all([old_risk, risk])
     await db_session.flush()
@@ -131,7 +134,7 @@ async def test_scanner_consumes_external_market_and_industry_signals(db_session,
         year_1_risk_id=old_risk.id, year_2_risk_id=risk.id,
         change_type=EvolutionChangeType.MODIFIED,
         severity_prev="MEDIUM", severity_current="HIGH",
-        metadata={"title_y1": old_risk.summary, "title_y2": risk.summary, "category": "Cybersecurity"},
+        metadata={"title_y1": old_risk.risk_summary, "title_y2": risk.risk_summary, "category": "Cybersecurity"},
     )
 
     async def compare(*_args, **_kwargs):
@@ -185,8 +188,9 @@ async def test_scanner_preserves_unmatched_company_news_as_context_only(db_sessi
     db_session.add(report)
     await db_session.flush()
     db_session.add(RiskItem(
-        report_id=report.id, category="Credit", severity="HIGH", confidence_score=0.88,
-        summary="Commercial real estate borrower defaults", source_page=44,
+        report_id=report.id, company_id=company.id, category="Credit", severity=5, severity_label="HIGH", confidence_score=0.88,
+        risk_title="Commercial real estate borrower defaults",
+        risk_summary="Commercial real estate borrower defaults", source_page=44,
         source_paragraph="Commercial real estate borrowers may default.",
     ))
 

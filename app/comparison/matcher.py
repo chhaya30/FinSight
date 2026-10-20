@@ -2,6 +2,11 @@ import difflib
 from typing import Any
 
 from app.comparison.normalizer import RiskNormalizer
+from app.config.constants import (
+    MATCH_CONFIDENCE_THRESHOLD,
+    SIMILARITY_THRESHOLD_MATCH,
+    SIMILARITY_THRESHOLD_NEW_RISK,
+)
 from app.config.logging import get_logger
 from app.models.comparison import CandidateMatch, RiskMatchResult
 from app.models.risk import NormalizedRisk
@@ -41,8 +46,8 @@ class SemanticRiskMatcher:
     def __init__(
         self,
         embedding_provider: Any | None = None,
-        min_similarity_threshold: float = 0.50,
-        min_confidence_threshold: float = 0.55,
+        min_similarity_threshold: float = SIMILARITY_THRESHOLD_NEW_RISK,
+        min_confidence_threshold: float = MATCH_CONFIDENCE_THRESHOLD,
         weight_semantic: float = 0.65,
         weight_category: float = 0.20,
         weight_title: float = 0.15,
@@ -132,6 +137,12 @@ class SemanticRiskMatcher:
                 sem_sim >= self.min_similarity_threshold
                 or confidence >= self.min_confidence_threshold
             ):
+                if sem_sim < SIMILARITY_THRESHOLD_NEW_RISK:
+                    similarity_band = "weak"
+                elif sem_sim < SIMILARITY_THRESHOLD_MATCH:
+                    similarity_band = "review"
+                else:
+                    similarity_band = "strong"
                 candidate_matches.append(
                     CandidateMatch(
                         year_1_risk_id=norm_y1.risk_id,
@@ -144,6 +155,7 @@ class SemanticRiskMatcher:
                             "title_similarity": round(title_sim, 4),
                             "category_match": category_match,
                             "text_similarity": round(text_sim, 4),
+                            "similarity_band": similarity_band,
                         },
                     )
                 )

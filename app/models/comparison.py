@@ -41,18 +41,35 @@ class ComparisonRequest(BaseModel):
     company_id: UUID
     year_current: int = Field(..., ge=1900, le=2100)
     year_previous: int = Field(..., ge=1900, le=2100)
-    similarity_threshold: float = Field(default=0.85, ge=0, le=1)
+    similarity_threshold: float = Field(default=0.70, ge=0, le=1)
+
+
+class RiskWithEvidence(BaseModel):
+    """Risk item with its associated evidence."""
+    risk: RiskItemResponse
+    evidence: RiskEvidence | None = None
+
+
+class EvidenceComparisonResponse(BaseModel):
+    """Both source excerpts for a selected year-over-year risk change."""
+
+    risk_id: UUID
+    change_type: str | None = None
+    previous_risk: RiskItemResponse | None = None
+    current_risk: RiskItemResponse | None = None
+    previous_evidence: RiskEvidence | None = None
+    current_evidence: RiskEvidence | None = None
 
 
 class ComparisonResponse(BaseModel):
     company_id: UUID
     year_current: int
     year_previous: int
-    new_risks: list[RiskItemResponse]
-    removed_risks: list[RiskItemResponse]
-    severity_increased: list[EvolutionEntryDetailResponse]
-    severity_decreased: list[EvolutionEntryDetailResponse]
-    modified_risks: list[EvolutionEntryDetailResponse]
+    new_risks: list[RiskWithEvidence]
+    removed_risks: list[RiskWithEvidence]
+    severity_increased: list[RiskWithEvidence]
+    severity_decreased: list[RiskWithEvidence]
+    modified_risks: list[RiskWithEvidence]
     total_changes: int
     ai_summary: str | None = None
     processing_time_seconds: float

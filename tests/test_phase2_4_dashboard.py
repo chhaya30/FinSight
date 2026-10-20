@@ -180,20 +180,18 @@ async def test_dashboard_get_endpoint_returns_db_backed_response(db_session):
     db_session.add_all(
         [
             RiskItem(
-                report_id=previous.id,
-                category="Financial",
-                severity="High",
-                confidence_score=0.8,
-                summary="Debt refinancing risk",
+                report_id=previous.id, company_id=company.id,
+                category="Financial", severity=4, severity_label="HIGH", confidence_score=0.8,
+                risk_title="Debt refinancing risk",
+                risk_summary="Debt refinancing risk",
                 source_page=10,
                 source_paragraph="Previous debt disclosure",
             ),
             RiskItem(
-                report_id=current.id,
-                category="Financial",
-                severity="High",
-                confidence_score=0.8,
-                summary="Debt refinancing risk",
+                report_id=current.id, company_id=company.id,
+                category="Financial", severity=4, severity_label="HIGH", confidence_score=0.8,
+                risk_title="Debt refinancing risk",
+                risk_summary="Debt refinancing risk",
                 source_page=11,
                 source_paragraph="Current debt disclosure",
             ),

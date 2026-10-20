@@ -45,7 +45,7 @@ async def scanner_options(db: AsyncSession = Depends(get_db_session)) -> Scanner
         sectors=sorted({company.sector for company in companies if company.sector}),
         years=sorted({report.fiscal_year for report in reports}, reverse=True),
         categories=sorted({risk.category for risk in risks}),
-        severities=sorted({risk.severity for risk in risks}),
+        severities=sorted({risk.severity_label for risk in risks if risk.severity_label}),
         statuses=_STATUSES,
         factor_operators={
             "category": ["eq", "observed"],
@@ -105,6 +105,7 @@ async def run_scanner(
             records, explanations, financial_analysis = await compare_report_risks(
                 previous_report, current_report, previous_risks, current_risks,
                 include_financial=True,
+                session=db,
             )
         market = await MarketIntelligenceService(market_provider).fetch_for_company(
             str(company.id), company.name, records
@@ -153,9 +154,9 @@ async def run_scanner(
                 sector=company.sector,
                 report_year=current_report.fiscal_year,
                 previous_year=previous_report.fiscal_year if previous_report else None,
-                title=risk.summary[:120],
+                title=risk.risk_summary[:120] if risk.risk_summary else "",
                 category=risk.category,
-                severity=risk.severity,
+                severity=risk.severity_label or str(risk.severity),
                 status=status,
                 classification_confidence=risk.confidence_score,
                 factors=factors,
@@ -228,11 +229,11 @@ def _build_factors(
         evolution_evidence = [_reference(item, "Phase 2 explainability") for item in explanation.supporting_evidence]
     else:
         evolution_evidence = []
-    severity = risk.severity.upper()
-    severity_score = SEVERITY_SCORES.get(severity, 0.5)
+    severity = risk.severity_label or str(risk.severity)
+    severity_score = SEVERITY_SCORES.get(severity.upper(), 0.5)
     severity_text = (
         f"Stored classification is {severity.lower()} (deterministic scale score {severity_score:.2f})."
-        if severity in SEVERITY_SCORES
+        if severity.upper() in SEVERITY_SCORES
         else f"Stored severity '{risk.severity}' is outside the known scale; a neutral score is used."
     )
     factors = [

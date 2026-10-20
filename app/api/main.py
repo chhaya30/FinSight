@@ -1,5 +1,6 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -100,6 +101,53 @@ def create_app() -> FastAPI:
         tags=["risk-explorer"],
     )
     app.include_router(scanner.router, prefix="/api/v1/scanner", tags=["scanner"])
+
+    # Add test error routes when running tests
+    if os.getenv("PYTEST_CURRENT_TEST") or os.getenv("TESTING"):
+        from app.llm.base import (
+            LLMRateLimitError,
+            LLMTimeoutError,
+            LLMAuthenticationError,
+            LLMProviderError,
+        )
+        from sqlalchemy.exc import IntegrityError
+        from fastapi import APIRouter
+
+        test_error_router = APIRouter(prefix="/test-errors", tags=["test-errors"])
+
+        @test_error_router.get("/llm-rate-limit")
+        async def test_llm_rate_limit():
+            raise LLMRateLimitError("Rate limit exceeded")
+
+        @test_error_router.get("/llm-timeout")
+        async def test_llm_timeout():
+            raise LLMTimeoutError("Request timed out")
+
+        @test_error_router.get("/llm-auth")
+        async def test_llm_auth():
+            raise LLMAuthenticationError("Invalid API key")
+
+        @test_error_router.get("/llm-provider")
+        async def test_llm_provider():
+            raise LLMProviderError("groq", "Service unavailable")
+
+        @test_error_router.get("/value-error")
+        async def test_value_error():
+            raise ValueError("Invalid criteria: year_current must be greater than year_previous")
+
+        @test_error_router.get("/file-not-found")
+        async def test_file_not_found():
+            raise FileNotFoundError("PDF file not found: test.pdf")
+
+        @test_error_router.get("/runtime-error")
+        async def test_runtime_error():
+            raise RuntimeError("Unexpected error")
+
+        @test_error_router.post("/integrity-error")
+        async def test_integrity_error():
+            raise IntegrityError("duplicate key", "params", "orig")
+
+        app.include_router(test_error_router)
 
     return app
 
